@@ -1,0 +1,14 @@
+# Personal data — never publish
+backend/data/
+*.mv.db
+*.trace.db
+
+# Build output & tooling
+node_modules/
+frontend/.angular/
+frontend/dist/
+backend/target/
+.idea/
+*.iml
+.vscode/
+.DS_Store

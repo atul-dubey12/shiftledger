@@ -1,0 +1,281 @@
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="#top" aria-label="ShiftLedger home">
+      <span class="brand-mark"><i-lucide [img]="icons.Bike"></i-lucide></span>
+      <span>shift<span class="brand-light">ledger</span><small>YOUR DELIVERY MONEY</small></span>
+    </a>
+    <nav aria-label="Sections">
+      <button class="nav-item" (click)="scrollTo('top')"><i-lucide [img]="icons.LayoutDashboard"></i-lucide><span>Overview</span></button>
+      <button class="nav-item" (click)="scrollTo('insights')"><i-lucide [img]="icons.Lightbulb"></i-lucide><span>Goal & insights</span></button>
+      <button class="nav-item" (click)="scrollTo('activity')"><i-lucide [img]="icons.Receipt"></i-lucide><span>Activity</span></button>
+      <button class="nav-item" (click)="settingsOpen.set(true)"><i-lucide [img]="icons.Settings2"></i-lucide><span>Settings</span></button>
+    </nav>
+    <div class="side-spacer"></div>
+
+    <div class="goal-card">
+      <div class="goal-card-head"><span class="note-icon"><i-lucide [img]="icons.Target"></i-lucide></span><strong>Weekly goal</strong></div>
+      @if (goalProgress(); as g) {
+        <div class="goal-card-value">{{ g.net | currency:'INR':'symbol':'1.0-0' }} <span>/ {{ g.goal | currency:'INR':'symbol':'1.0-0' }}</span></div>
+        <div class="progress" role="progressbar" [attr.aria-valuenow]="g.percent" aria-valuemin="0" aria-valuemax="100"><span [style.width.%]="g.percent"></span></div>
+        <small>{{ g.remaining ? (g.remaining | currency:'INR':'symbol':'1.0-0') + ' to go' : 'Goal reached 🎉' }}</small>
+      } @else {
+        <p>Set a weekly take-home target to track your progress.</p>
+        <button class="text-button" (click)="settingsOpen.set(true)">Set a goal <i-lucide [img]="icons.Plus"></i-lucide></button>
+      }
+    </div>
+    <button class="profile" (click)="settingsOpen.set(true)">
+      <span class="avatar">{{ (settings().name || 'R')[0].toUpperCase() }}</span>
+      <span><strong>{{ settings().name || 'Rider account' }}</strong><small>Personal tracker</small></span>
+      <i-lucide [img]="icons.Settings2"></i-lucide>
+    </button>
+  </aside>
+
+  <main id="top" class="main-content">
+    <header class="topbar">
+      <div class="mobile-brand"><span class="brand-mark"><i-lucide [img]="icons.Bike"></i-lucide></span>shiftledger</div>
+      <div class="breadcrumb">Workspace <span>/</span> <strong>Overview</strong></div>
+      <div class="top-actions">
+        <button class="icon-button" (click)="exportCsv()" aria-label="Download CSV for this period" title="Download CSV for this period"><i-lucide [img]="icons.Download"></i-lucide></button>
+        <button class="icon-button" (click)="toggleTheme()" aria-label="Toggle dark mode" title="Toggle dark mode"><i-lucide [img]="isDark() ? icons.Sun : icons.Moon"></i-lucide></button>
+        <button class="icon-button" (click)="settingsOpen.set(true)" aria-label="Settings" title="Settings"><i-lucide [img]="icons.Settings2"></i-lucide></button>
+      </div>
+    </header>
+
+    <div class="content-wrap">
+      @if (error()) { <div class="connection-banner" role="alert"><i-lucide [img]="icons.CircleDollarSign"></i-lucide>{{ error() }} <button class="text-button" (click)="refresh()">Retry</button></div> }
+
+      <section class="welcome-row">
+        <div>
+          <h1>{{ greeting() }}</h1>
+          <p class="subtitle">Every shift counts. See what you really take home.</p>
+        </div>
+        <div class="welcome-actions">
+          <button class="secondary-button" (click)="openForm('EXPENSE')"><i-lucide [img]="icons.Receipt"></i-lucide> Add expense</button>
+          <button class="primary-button" (click)="openForm('INCOME')"><i-lucide [img]="icons.Plus"></i-lucide> Add shift earning</button>
+        </div>
+      </section>
+
+      <div class="period-bar">
+        <div class="segmented" role="tablist" aria-label="Period">
+          @for (p of periods; track p) {
+            <button role="tab" [attr.aria-selected]="period() === p" [class.selected]="period() === p" (click)="setPeriod(p)">{{ p === 'day' ? 'Day' : p === 'week' ? 'Week' : 'Month' }}</button>
+          }
+        </div>
+        <div class="period-nav">
+          <button class="icon-button" (click)="step(-1)" aria-label="Previous period"><i-lucide [img]="icons.ChevronLeft"></i-lucide></button>
+          <span class="period-label"><i-lucide [img]="icons.CalendarDays"></i-lucide>{{ rangeLabel() }}</span>
+          <button class="icon-button" (click)="step(1)" [disabled]="isCurrentPeriod()" aria-label="Next period"><i-lucide [img]="icons.ChevronRight"></i-lucide></button>
+        </div>
+      </div>
+
+      <section class="stats-grid" aria-label="Money summary">
+        <article class="stat-card">
+          <div class="stat-top"><span class="stat-icon income-icon"><i-lucide [img]="icons.ArrowDownLeft"></i-lucide></span><span class="stat-label">Earned</span></div>
+          <div class="stat-value">{{ current().income | currency:'INR':'symbol':'1.0-0' }}</div>
+          <ng-container *ngTemplateOutlet="changeBadge; context: { $implicit: incomeChange(), goodWhenUp: true }"></ng-container>
+          <div class="stat-sub">{{ current().shifts }} {{ current().shifts === 1 ? 'shift' : 'shifts' }} · {{ daysWorked() }} {{ daysWorked() === 1 ? 'day' : 'days' }} worked</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-top"><span class="stat-icon expense-icon"><i-lucide [img]="icons.ArrowUpRight"></i-lucide></span><span class="stat-label">Work expenses</span></div>
+          <div class="stat-value">{{ current().expenses | currency:'INR':'symbol':'1.0-0' }}</div>
+          <ng-container *ngTemplateOutlet="changeBadge; context: { $implicit: expenseChange(), goodWhenUp: false }"></ng-container>
+          <div class="stat-sub">Fuel {{ current().fuel | currency:'INR':'symbol':'1.0-0' }} of it</div>
+        </article>
+        <article class="stat-card takehome-card">
+          <div class="stat-top"><span class="stat-icon takehome-icon"><i-lucide [img]="icons.Wallet"></i-lucide></span><span class="stat-label">Take-home</span></div>
+          <div class="stat-value" [class.negative]="current().net < 0">{{ current().net | currency:'INR':'symbol':'1.0-0' }}</div>
+          <ng-container *ngTemplateOutlet="changeBadge; context: { $implicit: netChange(), goodWhenUp: true }"></ng-container>
+          <div class="kept"><div class="progress"><span [style.width.%]="keptPercent()"></span></div><span>You kept <strong>{{ keptPercent() }}%</strong> of earnings</span></div>
+        </article>
+      </section>
+
+      <section class="metrics-grid" aria-label="Efficiency">
+        <div class="metric"><i-lucide [img]="icons.Timer"></i-lucide><span><small>Per hour</small><strong>{{ perHour() !== null ? (perHour() | currency:'INR':'symbol':'1.0-0') : '—' }}</strong></span></div>
+        <div class="metric"><i-lucide [img]="icons.Package"></i-lucide><span><small>Per order</small><strong>{{ perOrder() !== null ? (perOrder() | currency:'INR':'symbol':'1.0-0') : '—' }}</strong></span></div>
+        <div class="metric"><i-lucide [img]="icons.Gauge"></i-lucide><span><small>Orders · hours</small><strong>{{ current().orders }} · {{ current().hours | number:'1.0-1' }} h</strong></span></div>
+        <div class="metric"><i-lucide [img]="icons.Route"></i-lucide><span><small>Km · fuel/km</small><strong>{{ current().km | number:'1.0-0' }} km · {{ fuelPerKm() !== null ? '₹' + (fuelPerKm() | number:'1.1-1') : '—' }}</strong></span></div>
+      </section>
+
+      <section class="panel chart-panel" aria-labelledby="chart-title">
+        <div class="panel-heading">
+          <div><h2 id="chart-title">Daily earnings & costs</h2><p>{{ period() === 'day' ? 'The week around this day' : rangeLabel() }} · tap a day to see its entries</p></div>
+          <div class="legend"><span><i class="swatch swatch-income"></i>Earned</span><span><i class="swatch swatch-expense"></i>Spent</span></div>
+        </div>
+        <div class="chart" [class.chart-dense]="chartDays().length > 7" (mouseleave)="hoveredDay.set(null)">
+          @for (d of chartDays(); track d.iso; let i = $index) {
+            <button class="chart-day" [class.is-today]="d.iso === todayIso" [class.is-selected]="d.iso === selectedIso()"
+                    (mouseenter)="hoveredDay.set(d.iso)" (focus)="hoveredDay.set(d.iso)" (blur)="hoveredDay.set(null)" (click)="pickDay(d.iso)"
+                    [attr.aria-label]="(d.date | date:'EEE d MMM') + ': earned ₹' + d.income + ', spent ₹' + d.expenses">
+              <span class="bars">
+                @if (d.iso === bestDay() && chartDays().length <= 7) { <span class="bar-label">{{ d.income | currency:'INR':'symbol':'1.0-0' }}</span> }
+                <span class="bar bar-income" [style.height.%]="barHeight(d.income)"></span>
+                <span class="bar bar-expense" [style.height.%]="barHeight(d.expenses)"></span>
+              </span>
+              <span class="day-label">{{ showDayLabel(d.date, i) ? dayLabel(d.date) : '' }}</span>
+            </button>
+          }
+          @if (hoveredBar(); as h) {
+            <div class="chart-tooltip" role="status">
+              <strong>{{ h.date | date:'EEE, d MMM' }}</strong>
+              <span><i class="swatch swatch-income"></i>Earned <b>{{ h.income | currency:'INR':'symbol':'1.0-0' }}</b></span>
+              <span><i class="swatch swatch-expense"></i>Spent <b>{{ h.expenses | currency:'INR':'symbol':'1.0-0' }}</b></span>
+              <span>Take-home <b>{{ h.income - h.expenses | currency:'INR':'symbol':'1.0-0' }}</b></span>
+            </div>
+          }
+        </div>
+        <table class="sr-only">
+          <caption>Daily earnings and costs</caption>
+          <tr><th>Day</th><th>Earned</th><th>Spent</th></tr>
+          @for (d of chartDays(); track d.iso) { <tr><td>{{ d.date | date:'EEE d MMM' }}</td><td>{{ d.income }}</td><td>{{ d.expenses }}</td></tr> }
+        </table>
+      </section>
+
+      <section class="middle-grid">
+        <article class="panel breakdown-panel">
+          <div class="panel-heading">
+            <div><h2>Where your money goes</h2><p>Work costs by category · {{ periodName().toLowerCase() }}</p></div>
+            <button class="text-button" (click)="openForm('EXPENSE')">Add expense <i-lucide [img]="icons.Plus"></i-lucide></button>
+          </div>
+          @if (breakdown().length) {
+            <div class="category-list">
+              @for (item of breakdown(); track item.key) {
+                <div class="category-row">
+                  <span class="category-icon">{{ item.emoji }}</span>
+                  <span class="category-name">{{ item.label }}</span>
+                  <span class="category-amount">{{ item.value | currency:'INR':'symbol':'1.0-0' }} <small>{{ item.percent | number:'1.0-0' }}%</small></span>
+                  <span class="category-bar"><i [style.width.%]="item.percent"></i></span>
+                </div>
+              }
+            </div>
+          } @else {
+            <p class="muted-empty">No expenses logged for this period.</p>
+          }
+        </article>
+
+        <article id="insights" class="panel insight-panel">
+          <div class="insight-top"><span class="insight-icon"><i-lucide [img]="icons.Target"></i-lucide></span><span class="insight-tag">THIS WEEK'S GOAL</span></div>
+          @if (goalProgress(); as g) {
+            <div class="goal-big">
+              <strong>{{ g.percent }}%</strong>
+              <span>{{ g.net | currency:'INR':'symbol':'1.0-0' }} of {{ g.goal | currency:'INR':'symbol':'1.0-0' }}</span>
+            </div>
+            <div class="progress progress-lg"><span [style.width.%]="g.percent"></span></div>
+            <p class="goal-hint">
+              @if (!g.remaining) { You've hit your goal this week. Nice riding! }
+              @else if (g.shiftsNeeded) { {{ g.remaining | currency:'INR':'symbol':'1.0-0' }} to go — about {{ g.shiftsNeeded }} more {{ g.shiftsNeeded === 1 ? 'shift' : 'shifts' }} at your recent average, {{ g.daysLeft }} {{ g.daysLeft === 1 ? 'day' : 'days' }} left. }
+              @else { {{ g.remaining | currency:'INR':'symbol':'1.0-0' }} to go, {{ g.daysLeft }} {{ g.daysLeft === 1 ? 'day' : 'days' }} left. }
+            </p>
+          } @else {
+            <p class="goal-hint">Set a weekly take-home goal and we'll tell you how many shifts it takes to get there.</p>
+            <button class="secondary-button" (click)="settingsOpen.set(true)"><i-lucide [img]="icons.Target"></i-lucide> Set weekly goal</button>
+          }
+          <div class="insight-divider"></div>
+          <div class="insight-top"><span class="insight-icon"><i-lucide [img]="icons.Sparkles"></i-lucide></span><span class="insight-tag">INSIGHTS · {{ periodName().toUpperCase() }}</span></div>
+          <ul class="insight-list">
+            @for (item of insights(); track item.text) { <li><i-lucide [img]="icons[item.icon]"></i-lucide><span>{{ item.text }}</span></li> }
+          </ul>
+        </article>
+      </section>
+
+      <section id="activity" class="panel activity-panel">
+        <div class="panel-heading activity-heading">
+          <div><h2>Activity</h2><p>{{ periodName() }} · tap an entry to edit it</p></div>
+          <div class="activity-actions">
+            <label class="search-box"><i-lucide [img]="icons.Search"></i-lucide><input type="search" placeholder="Search notes, amounts…" aria-label="Search entries" [ngModel]="search()" (ngModelChange)="search.set($event)"></label>
+            <div class="filter-tabs">
+              <button [class.selected]="activeFilter() === 'ALL'" (click)="activeFilter.set('ALL')">All</button>
+              <button [class.selected]="activeFilter() === 'INCOME'" (click)="activeFilter.set('INCOME')">Earnings</button>
+              <button [class.selected]="activeFilter() === 'EXPENSE'" (click)="activeFilter.set('EXPENSE')">Expenses</button>
+            </div>
+          </div>
+        </div>
+
+        @if (loading()) {
+          <div class="loading-state">Loading your entries…</div>
+        } @else {
+          @for (group of activityGroups(); track group.iso) {
+            <div class="day-group-head">
+              <span>{{ group.iso === todayIso ? 'Today' : (group.date | date:'EEEE, d MMM') }}</span>
+              <span [class.amount-income]="group.net >= 0" [class.amount-expense]="group.net < 0">{{ group.net >= 0 ? '+' : '−' }}{{ (group.net < 0 ? -group.net : group.net) | currency:'INR':'symbol':'1.0-0' }}</span>
+            </div>
+            @for (entry of group.items; track entry.id) {
+              <div class="entry-row">
+                <button class="entry-main" (click)="openForm(entry.type, entry)" [attr.aria-label]="'Edit ' + entryTitle(entry)">
+                  <span class="entry-icon" [class.entry-income]="entry.type === 'INCOME'" [class.entry-expense]="entry.type === 'EXPENSE'"><i-lucide [img]="entryIcon(entry)"></i-lucide></span>
+                  <span class="entry-text"><strong>{{ entryTitle(entry) }}</strong><small>{{ entrySubtitle(entry) }}</small></span>
+                  <strong class="entry-amount" [class.amount-income]="entry.type === 'INCOME'" [class.amount-expense]="entry.type === 'EXPENSE'">{{ entry.type === 'INCOME' ? '+' : '−' }}{{ entry.amount | currency:'INR':'symbol':'1.0-0' }}</strong>
+                </button>
+                <button class="row-action" aria-label="Edit entry" (click)="openForm(entry.type, entry)"><i-lucide [img]="icons.Pencil"></i-lucide></button>
+                <button class="row-action row-delete" aria-label="Delete entry" (click)="removeEntry(entry)"><i-lucide [img]="icons.Trash2"></i-lucide></button>
+              </div>
+            }
+          } @empty {
+            <div class="empty-state">
+              <span class="empty-icon"><i-lucide [img]="icons.Bike"></i-lucide></span>
+              @if (search()) { <strong>No matches</strong><p>Nothing in {{ periodName().toLowerCase() }} matches “{{ search() }}”.</p> }
+              @else {
+                <strong>Nothing logged for {{ periodName().toLowerCase() }}</strong>
+                <p>Add a shift earning or work expense to see your picture.</p>
+                <button class="primary-button" (click)="openForm('INCOME')"><i-lucide [img]="icons.Plus"></i-lucide> Add shift earning</button>
+              }
+            </div>
+          }
+        }
+        <div class="table-footer">
+          <span>{{ activityCount() }} {{ activityCount() === 1 ? 'entry' : 'entries' }}@if (onDevice) { · saved on this device — download a CSV now and then as a backup }</span>
+          <button class="text-button" (click)="exportCsv()"><i-lucide [img]="icons.Download"></i-lucide> Download CSV</button>
+        </div>
+      </section>
+      <footer class="footer"><span>Made for the miles you ride <span>♥</span></span><span>SHIFTLEDGER</span></footer>
+    </div>
+  </main>
+</div>
+
+<div class="bottom-bar">
+  <button class="secondary-button" (click)="openForm('EXPENSE')"><i-lucide [img]="icons.Receipt"></i-lucide> Expense</button>
+  <button class="primary-button" (click)="openForm('INCOME')"><i-lucide [img]="icons.Plus"></i-lucide> Earning</button>
+</div>
+
+<ng-template #changeBadge let-value let-goodWhenUp="goodWhenUp">
+  @if (value !== null) {
+    <span class="change" [class.good]="(value >= 0) === goodWhenUp" [class.bad]="value !== 0 && (value >= 0) !== goodWhenUp">
+      <i-lucide [img]="value >= 0 ? icons.TrendingUp : icons.TrendingDown"></i-lucide>{{ value >= 0 ? '+' : '' }}{{ value }}% vs {{ previousName() }}
+    </span>
+  } @else {
+    <span class="change">No data for {{ previousName() }}</span>
+  }
+</ng-template>
+
+@if (form(); as f) {
+  <app-entry-form [type]="f.type" [entry]="f.entry" [history]="entries()" (saved)="onSaved($event)" (closed)="form.set(null)"></app-entry-form>
+}
+
+@if (settingsOpen()) {
+  <div class="modal-backdrop" (click)="settingsOpen.set(false)">
+    <section class="entry-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" (click)="$event.stopPropagation()" (keydown.escape)="settingsOpen.set(false)">
+      <div class="modal-head">
+        <span class="modal-icon modal-income"><i-lucide [img]="icons.Settings2"></i-lucide></span>
+        <div><h2 id="settings-title">Settings</h2><p class="modal-subtitle">Saved on this device</p></div>
+        <button class="icon-button modal-close" aria-label="Close" (click)="settingsOpen.set(false)"><i-lucide [img]="icons.X"></i-lucide></button>
+      </div>
+      <label class="field-label" for="rider-name">Your name</label>
+      <input class="form-input" id="rider-name" type="text" maxlength="30" placeholder="Rider" [ngModel]="settings().name" (ngModelChange)="updateSettings({ name: $event })">
+      <label class="field-label" for="weekly-goal">Weekly take-home goal</label>
+      <div class="amount-input"><span>₹</span><input id="weekly-goal" type="number" inputmode="numeric" min="0" step="100" placeholder="e.g. 6000" [ngModel]="settings().weeklyGoal" (ngModelChange)="updateSettings({ weeklyGoal: $event > 0 ? $event : null })"></div>
+      <span class="field-label">Theme</span>
+      <div class="segmented segmented-full">
+        <button [class.selected]="settings().theme === 'system'" (click)="updateSettings({ theme: 'system' })">Auto</button>
+        <button [class.selected]="settings().theme === 'light'" (click)="updateSettings({ theme: 'light' })"><i-lucide [img]="icons.Sun"></i-lucide> Light</button>
+        <button [class.selected]="settings().theme === 'dark'" (click)="updateSettings({ theme: 'dark' })"><i-lucide [img]="icons.Moon"></i-lucide> Night</button>
+      </div>
+      <div class="modal-actions"><button class="primary-button" (click)="settingsOpen.set(false)">Done <i-lucide [img]="icons.Check"></i-lucide></button></div>
+    </section>
+  </div>
+}
+
+@if (toast(); as t) {
+  <div class="toast" role="status">
+    <i-lucide [img]="icons.Check"></i-lucide><span>{{ t.message }}</span>
+    @if (t.actionLabel) { <button (click)="runToastAction()"><i-lucide [img]="icons.Undo2"></i-lucide>{{ t.actionLabel }}</button> }
+  </div>
+}
