@@ -92,9 +92,13 @@ export interface CodBalance {
   lastSettlement: LedgerEntry | null;
 }
 /** All-time, because COD cash carries over between days until it is settled. */
+const codStage = (e: LedgerEntry): number => e.type === 'INCOME' ? 0 : e.type === 'EXPENSE' ? 1 : 2;
+
 export function codBalance(entries: LedgerEntry[]): CodBalance {
-  // Replay in the order things happened: once a settlement clears the debt, earlier COD-paid expenses must stop counting.
-  const ordered = [...entries].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+  // Replay day by day: once a settlement clears the debt, earlier COD-paid expenses must stop counting.
+  // Within a day, entry order says nothing about when cash moved (riders often log the shift last, or add COD later),
+  // so count the day's collections first, then what was spent from them, then settlements.
+  const ordered = [...entries].sort((a, b) => a.date.localeCompare(b.date) || codStage(a) - codStage(b) || a.id - b.id);
   let owed = 0, cash = 0, lastSettlement: LedgerEntry | null = null;
   for (const e of ordered) {
     if (e.type === 'INCOME' && e.codAmount) { owed += e.codAmount; cash += e.codAmount; }
