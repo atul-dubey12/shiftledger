@@ -53,7 +53,7 @@ public class EntryController {
     @GetMapping(value = "/export", produces = "text/csv")
     public ResponseEntity<String> export(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
                                          @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        StringBuilder csv = new StringBuilder("Date,Type,Category,Amount,Orders,Hours,Km,Note\n");
+        StringBuilder csv = new StringBuilder("Date,Type,Category,Amount,Orders,Hours,Km,Note,COD,PaidFrom,SettlementMethod\n");
         for (Entry e : all(from, to)) {
             csv.append(e.getDate()).append(',').append(e.getType()).append(',')
                     .append(e.getCategory() == null ? "" : e.getCategory()).append(',')
@@ -61,7 +61,10 @@ public class EntryController {
                     .append(e.getOrderCount() == null ? "" : e.getOrderCount()).append(',')
                     .append(e.getHoursWorked() == null ? "" : e.getHoursWorked().toPlainString()).append(',')
                     .append(e.getDistanceKm() == null ? "" : e.getDistanceKm().toPlainString()).append(',')
-                    .append(csvCell(e.getNote())).append('\n');
+                    .append(csvCell(e.getNote())).append(',')
+                    .append(e.getCodAmount() == null ? "" : e.getCodAmount().toPlainString()).append(',')
+                    .append(e.getPaidFrom() == null ? "" : e.getPaidFrom()).append(',')
+                    .append(e.getSettlementMethod() == null ? "" : e.getSettlementMethod()).append('\n');
         }
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"shiftledger-" + LocalDate.now() + ".csv\"")
@@ -70,19 +73,33 @@ public class EntryController {
     }
 
     private void validate(EntryRequest request) {
-        if (request.type() == null || request.amount() == null || request.amount().compareTo(BigDecimal.ZERO) <= 0 || request.date() == null) {
-            throw badRequest("Type, positive amount, and date are required.");
-        }
+        if (request.type() == null || request.amount() == null || request.date() == null) throw badRequest("Type, amount, and date are required.");
+        // A COD order whose payout isn't known yet, or an end-of-shift entry that only records hours, may carry ₹0.
+        boolean zeroAllowed = request.type() == EntryType.INCOME && (positive(request.codAmount()) || positive(request.hoursWorked()));
+        if (request.amount().signum() < 0 || (request.amount().signum() == 0 && !zeroAllowed)) throw badRequest("Enter an amount greater than ₹0.");
         if (request.amount().compareTo(BigDecimal.valueOf(10_000_000)) >= 0) throw badRequest("Amount is too large.");
         if (request.date().isAfter(LocalDate.now().plusDays(1))) throw badRequest("Date cannot be in the future.");
-        if (request.type() == EntryType.EXPENSE) {
-            if (request.category() == null) throw badRequest("Choose an expense category.");
-            if (request.orderCount() != null || request.hoursWorked() != null || request.distanceKm() != null) {
-                throw badRequest("Orders, hours and distance belong on shift earnings.");
+        boolean hasShiftDetails = request.orderCount() != null || request.hoursWorked() != null || request.distanceKm() != null;
+        switch (request.type()) {
+            case INCOME -> {
+                if (request.category() != null) throw badRequest("Income entries do not have an expense category.");
+                if (request.paidFrom() != null) throw badRequest("Only expenses can be paid from COD cash.");
+            }
+            case EXPENSE -> {
+                if (request.category() == null) throw badRequest("Choose an expense category.");
+                if (hasShiftDetails) throw badRequest("Orders, hours and distance belong on shift earnings.");
+                if (request.codAmount() != null) throw badRequest("COD cash is recorded on orders, not expenses.");
+            }
+            case COD_SETTLEMENT -> {
+                if (request.settlementMethod() == null) throw badRequest("Choose how the COD cash was settled.");
+                if (request.category() != null || hasShiftDetails || request.codAmount() != null || request.paidFrom() != null) {
+                    throw badRequest("A COD settlement only has an amount, date, method and note.");
+                }
             }
         }
-        if (request.type() == EntryType.INCOME && request.category() != null) {
-            throw badRequest("Income entries do not have an expense category.");
+        if (request.type() != EntryType.COD_SETTLEMENT && request.settlementMethod() != null) throw badRequest("Settlement method only applies to COD settlements.");
+        if (request.codAmount() != null && (request.codAmount().signum() < 0 || request.codAmount().compareTo(BigDecimal.valueOf(100_000)) >= 0)) {
+            throw badRequest("COD cash must be between ₹0 and ₹1,00,000.");
         }
         if (request.orderCount() != null && (request.orderCount() < 0 || request.orderCount() > 500)) throw badRequest("Orders must be between 0 and 500.");
         if (request.hoursWorked() != null && (request.hoursWorked().signum() < 0 || request.hoursWorked().compareTo(MAX_HOURS) > 0)) {
@@ -92,6 +109,8 @@ public class EntryController {
             throw badRequest("Distance must be between 0 and 2000 km.");
         }
     }
+
+    private static boolean positive(BigDecimal value) { return value != null && value.signum() > 0; }
 
     private static ResponseStatusException badRequest(String message) { return new ResponseStatusException(HttpStatus.BAD_REQUEST, message); }
 

@@ -26,13 +26,22 @@
       <label class="field-label" for="amount">Amount</label>
       <div class="amount-input">
         <span>₹</span>
-        <input id="amount" name="amount" type="number" inputmode="decimal" min="1" step="any" placeholder="0" [(ngModel)]="amount" required autofocus>
+        <input id="amount" name="amount" type="number" inputmode="decimal" min="0" step="any" placeholder="0" [(ngModel)]="amount" required autofocus>
       </div>
       <div class="chip-row">
         @for (value of suggestions(); track value) {
           <button type="button" class="chip" [class.selected]="amount === value" (click)="amount = value">₹{{ value }}</button>
         }
       </div>
+
+      @if (showPaidFrom) {
+        <span class="field-label">Paid with</span>
+        <div class="segmented segmented-full">
+          <button type="button" [class.selected]="paidFrom() === 'OWN'" (click)="paidFrom.set('OWN')">My money</button>
+          <button type="button" [class.selected]="paidFrom() === 'COD_CASH'" (click)="paidFrom.set('COD_CASH')">COD cash · ₹{{ codAvailable }}</button>
+        </div>
+        @if (overCod) { <p class="warn-note">You only have ₹{{ codAvailable }} of COD cash — the rest will count as coming from your own pocket.</p> }
+      }
 
       @if (type === 'INCOME') {
         <span class="field-label">Shift details <span>(optional — unlocks ₹/hour and ₹/order)</span></span>
@@ -41,6 +50,8 @@
           <label><small>Hours</small><input class="form-input" name="hours" type="number" inputmode="decimal" min="0" max="24" step="0.25" placeholder="0" [(ngModel)]="hoursWorked"></label>
           <label><small>Km ridden</small><input class="form-input" name="km" type="number" inputmode="decimal" min="0" step="0.1" placeholder="0" [(ngModel)]="distanceKm"></label>
         </div>
+        <label class="field-label" for="cod">COD cash collected <span>(optional — Zomato's money, not earnings)</span></label>
+        <div class="amount-input amount-cod"><span>₹</span><input id="cod" name="cod" type="number" inputmode="decimal" min="0" placeholder="0" [(ngModel)]="codAmount"></div>
       }
 
       <span class="field-label">Date</span>

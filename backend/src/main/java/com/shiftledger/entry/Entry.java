@@ -24,6 +24,12 @@ public class Entry {
     private BigDecimal hoursWorked;
     @Column(precision = 7, scale = 1)
     private BigDecimal distanceKm;
+    @Column(precision = 10, scale = 2)
+    private BigDecimal codAmount;
+    @Enumerated(EnumType.STRING) @Column(length = 20, columnDefinition = "varchar(20)")
+    private PaidFrom paidFrom;
+    @Enumerated(EnumType.STRING) @Column(length = 30, columnDefinition = "varchar(30)")
+    private SettlementMethod settlementMethod;
 
     protected Entry() {}
 
@@ -38,6 +44,9 @@ public class Entry {
         this.orderCount = request.orderCount();
         this.hoursWorked = request.hoursWorked();
         this.distanceKm = request.distanceKm();
+        this.codAmount = request.codAmount();
+        this.paidFrom = request.paidFrom();
+        this.settlementMethod = request.settlementMethod();
     }
 
     public Long getId() { return id; }
@@ -49,4 +58,7 @@ public class Entry {
     public Integer getOrderCount() { return orderCount; }
     public BigDecimal getHoursWorked() { return hoursWorked; }
     public BigDecimal getDistanceKm() { return distanceKm; }
+    public BigDecimal getCodAmount() { return codAmount; }
+    public PaidFrom getPaidFrom() { return paidFrom; }
+    public SettlementMethod getSettlementMethod() { return settlementMethod; }
 }

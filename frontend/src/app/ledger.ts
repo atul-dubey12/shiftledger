@@ -14,8 +14,8 @@ export const CATEGORIES: CategoryMeta[] = [
 ];
 export const categoryMeta = (key: ExpenseCategory | null): CategoryMeta => CATEGORIES.find((c) => c.key === key) ?? CATEGORIES[CATEGORIES.length - 1];
 
-export const DEFAULT_AMOUNTS: Record<ExpenseCategory | 'INCOME', number[]> = {
-  INCOME: [800, 1000, 1500], FUEL: [100, 200, 500], FOOD: [50, 100, 150],
+export const DEFAULT_AMOUNTS: Record<ExpenseCategory | 'INCOME' | 'ORDER', number[]> = {
+  INCOME: [800, 1000, 1500], ORDER: [30, 40, 50, 60], FUEL: [100, 200, 500], FOOD: [50, 100, 150],
   BIKE_SERVICE: [300, 500, 1000], PHONE_RECHARGE: [199, 299, 499], BIKE_EMI: [1500, 2500, 3500], OTHER: [50, 100, 200],
 };
 
@@ -44,26 +44,65 @@ export function inRange(entries: LedgerEntry[], range: DateRange): LedgerEntry[]
 }
 
 export interface Totals {
-  income: number; expenses: number; net: number; shifts: number;
+  income: number; expenses: number; net: number;
+  /** Distinct days with any earning — per-order logging creates many entries per shift, so entries aren't shifts. */
+  shifts: number;
   orders: number; hours: number; km: number; fuel: number;
-  /** Income from shifts that recorded hours / orders, so the rates aren't skewed by shifts missing those fields. */
+  /** Income on days that logged hours / income from entries that logged orders, so rates aren't skewed by missing fields. */
   incomeWithHours: number; incomeWithOrders: number;
+  codCollected: number; codOrders: number; codSpent: number; codSettled: number;
 }
 export function totals(entries: LedgerEntry[]): Totals {
-  const t: Totals = { income: 0, expenses: 0, net: 0, shifts: 0, orders: 0, hours: 0, km: 0, fuel: 0, incomeWithHours: 0, incomeWithOrders: 0 };
+  const t: Totals = {
+    income: 0, expenses: 0, net: 0, shifts: 0, orders: 0, hours: 0, km: 0, fuel: 0, incomeWithHours: 0, incomeWithOrders: 0,
+    codCollected: 0, codOrders: 0, codSpent: 0, codSettled: 0,
+  };
+  const incomeByDate = new Map<string, number>();
+  const datesWithHours = new Set<string>();
   for (const e of entries) {
     if (e.type === 'INCOME') {
-      t.income += e.amount; t.shifts++;
-      if (e.hoursWorked) { t.hours += e.hoursWorked; t.incomeWithHours += e.amount; }
+      t.income += e.amount;
+      incomeByDate.set(e.date, (incomeByDate.get(e.date) ?? 0) + e.amount);
+      if (e.hoursWorked) { t.hours += e.hoursWorked; datesWithHours.add(e.date); }
       if (e.orderCount) { t.orders += e.orderCount; t.incomeWithOrders += e.amount; }
+      if (e.codAmount) { t.codCollected += e.codAmount; t.codOrders++; }
       t.km += e.distanceKm ?? 0;
-    } else {
+    } else if (e.type === 'EXPENSE') {
       t.expenses += e.amount;
       if (e.category === 'FUEL') t.fuel += e.amount;
+      if (e.paidFrom === 'COD_CASH') t.codSpent += e.amount;
+    } else {
+      t.codSettled += e.amount;
     }
   }
+  // With quick orders, hours arrive on a separate end-of-shift entry, so count every rupee earned on a day that logged hours.
+  for (const date of datesWithHours) t.incomeWithHours += incomeByDate.get(date) ?? 0;
+  t.shifts = incomeByDate.size;
   t.net = t.income - t.expenses;
   return t;
+}
+
+export interface CodBalance {
+  /** COD collected minus settled: what the rider must hand back. */
+  owed: number;
+  /** Physical COD cash still in the pocket after paying expenses with it. */
+  cashInHand: number;
+  /** Owed cash that went on expenses — has to come from the rider's own money at settlement. */
+  spentFromCod: number;
+  lastSettlement: LedgerEntry | null;
+}
+/** All-time, because COD cash carries over between days until it is settled. */
+export function codBalance(entries: LedgerEntry[]): CodBalance {
+  // Replay in the order things happened: once a settlement clears the debt, earlier COD-paid expenses must stop counting.
+  const ordered = [...entries].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+  let owed = 0, cash = 0, lastSettlement: LedgerEntry | null = null;
+  for (const e of ordered) {
+    if (e.type === 'INCOME' && e.codAmount) { owed += e.codAmount; cash += e.codAmount; }
+    else if (e.type === 'EXPENSE' && e.paidFrom === 'COD_CASH') cash = Math.max(0, cash - e.amount);
+    else if (e.type === 'COD_SETTLEMENT') { owed = Math.max(0, owed - e.amount); cash = Math.max(0, cash - e.amount); lastSettlement = e; }
+    cash = Math.min(cash, owed);
+  }
+  return { owed, cashInHand: cash, spentFromCod: owed - cash, lastSettlement };
 }
 
 /** Percent change, or null when there's no baseline to compare against. */
@@ -80,17 +119,17 @@ export function dailySeries(entries: LedgerEntry[], range: DateRange): DayBar[] 
   for (const e of entries) {
     const day = byIso.get(e.date);
     if (!day) continue;
-    if (e.type === 'INCOME') day.income += e.amount; else day.expenses += e.amount;
+    if (e.type === 'INCOME') day.income += e.amount; else if (e.type === 'EXPENSE') day.expenses += e.amount;
   }
   return days;
 }
 
-/** Most-used amounts for a category (or income), falling back to sensible presets. */
-export function suggestedAmounts(entries: LedgerEntry[], key: ExpenseCategory | 'INCOME'): number[] {
+/** Most-used amounts for a category, income, or single orders, falling back to sensible presets. */
+export function suggestedAmounts(entries: LedgerEntry[], key: ExpenseCategory | 'INCOME' | 'ORDER'): number[] {
+  const matches = (e: LedgerEntry) => key === 'ORDER' ? e.type === 'INCOME' && e.orderCount === 1 && e.amount > 0
+    : key === 'INCOME' ? e.type === 'INCOME' && e.orderCount !== 1 && e.amount > 0 : e.category === key;
   const counts = new Map<number, number>();
-  for (const e of entries) {
-    if ((key === 'INCOME' ? e.type === 'INCOME' : e.category === key)) counts.set(e.amount, (counts.get(e.amount) ?? 0) + 1);
-  }
+  for (const e of entries) if (matches(e)) counts.set(e.amount, (counts.get(e.amount) ?? 0) + 1);
   const used = [...counts.entries()].filter(([, n]) => n > 1).sort((a, b) => b[1] - a[1]).map(([amount]) => amount);
   return [...new Set([...used, ...DEFAULT_AMOUNTS[key]])].slice(0, 4).sort((a, b) => a - b);
 }

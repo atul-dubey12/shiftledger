@@ -1,5 +1,5 @@
 package com.shiftledger.entry;
 
 public enum EntryType {
-    INCOME, EXPENSE
+    INCOME, EXPENSE, COD_SETTLEMENT
 }

@@ -51,8 +51,50 @@
         </div>
         <div class="welcome-actions">
           <button class="secondary-button" (click)="openForm('EXPENSE')"><i-lucide [img]="icons.Receipt"></i-lucide> Add expense</button>
-          <button class="primary-button" (click)="openForm('INCOME')"><i-lucide [img]="icons.Plus"></i-lucide> Add shift earning</button>
+          <button class="secondary-button" (click)="openForm('INCOME')"><i-lucide [img]="icons.Plus"></i-lucide> Shift earning</button>
+          <button class="primary-button" (click)="quickOrderOpen.set(true)"><i-lucide [img]="icons.Zap"></i-lucide> Quick order</button>
         </div>
+      </section>
+
+      <section class="today-grid" [class.today-grid-single]="!hasCod()">
+        <article class="today-card">
+          <div class="today-head">
+            <span class="today-tag">TODAY</span>
+            @if (shiftEndedToday()) { <span class="today-done"><i-lucide [img]="icons.Check"></i-lucide>{{ today().hours | number:'1.0-2' }} h logged</span> }
+            @else if (today().orders) { <button class="text-button" (click)="endShiftOpen.set(true)"><i-lucide [img]="icons.Timer"></i-lucide> End shift</button> }
+          </div>
+          <div class="today-stats">
+            <div><strong>{{ today().orders }}</strong><small>{{ today().orders === 1 ? 'order' : 'orders' }}</small></div>
+            <div><strong>{{ today().income | currency:'INR':'symbol':'1.0-0' }}</strong><small>earned</small></div>
+            <div><strong>{{ today().km | number:'1.0-1' }}</strong><small>km</small></div>
+            <div><strong>{{ today().expenses | currency:'INR':'symbol':'1.0-0' }}</strong><small>spent</small></div>
+          </div>
+          @if (!today().orders && !today().income) { <p class="today-hint">Tap <strong>⚡ Order</strong> after each delivery — it takes two taps.</p> }
+        </article>
+
+        @if (hasCod()) {
+          <article class="cod-card" [class.cod-warn]="(codLimitPercent() ?? 0) >= 80">
+            <div class="today-head">
+              <span class="today-tag"><i-lucide [img]="icons.Banknote"></i-lucide> COD CASH</span>
+              @if (cod().owed > 0) { <button class="text-button" (click)="openForm('COD_SETTLEMENT')"><i-lucide [img]="icons.HandCoins"></i-lucide> Settle cash</button> }
+            </div>
+            @if (cod().owed > 0) {
+              <div class="cod-owed"><strong>{{ cod().owed | currency:'INR':'symbol':'1.0-0' }}</strong> owed to Zomato</div>
+              <div class="cod-lines">
+                <span>Cash in hand <b>{{ cod().cashInHand | currency:'INR':'symbol':'1.0-0' }}</b></span>
+                @if (cod().spentFromCod > 0) { <span class="cod-spent">Used for expenses <b>{{ cod().spentFromCod | currency:'INR':'symbol':'1.0-0' }}</b></span> }
+              </div>
+              @if (cod().spentFromCod > 0) { <p class="cod-note">Keep {{ cod().spentFromCod | currency:'INR':'symbol':'1.0-0' }} of your own money aside — you'll need it when you settle.</p> }
+              @if (codLimitPercent() !== null) {
+                <div class="progress cod-progress"><span [style.width.%]="codLimitPercent()"></span></div>
+                <small class="cod-limit">{{ codLimitPercent() }}% of your {{ settings().codLimit | currency:'INR':'symbol':'1.0-0' }} cash limit</small>
+              }
+            } @else {
+              <div class="cod-owed"><strong>₹0</strong> owed — all settled</div>
+              @if (cod().lastSettlement; as last) { <p class="cod-note">Last settled {{ last.amount | currency:'INR':'symbol':'1.0-0' }} on {{ last.date | date:'d MMM' }}.</p> }
+            }
+          </article>
+        }
       </section>
 
       <div class="period-bar">
@@ -73,7 +115,7 @@
           <div class="stat-top"><span class="stat-icon income-icon"><i-lucide [img]="icons.ArrowDownLeft"></i-lucide></span><span class="stat-label">Earned</span></div>
           <div class="stat-value">{{ current().income | currency:'INR':'symbol':'1.0-0' }}</div>
           <ng-container *ngTemplateOutlet="changeBadge; context: { $implicit: incomeChange(), goodWhenUp: true }"></ng-container>
-          <div class="stat-sub">{{ current().shifts }} {{ current().shifts === 1 ? 'shift' : 'shifts' }} · {{ daysWorked() }} {{ daysWorked() === 1 ? 'day' : 'days' }} worked</div>
+          <div class="stat-sub">{{ current().orders }} {{ current().orders === 1 ? 'order' : 'orders' }} · {{ daysWorked() }} {{ daysWorked() === 1 ? 'day' : 'days' }} worked</div>
         </article>
         <article class="stat-card">
           <div class="stat-top"><span class="stat-icon expense-icon"><i-lucide [img]="icons.ArrowUpRight"></i-lucide></span><span class="stat-label">Work expenses</span></div>
@@ -186,6 +228,7 @@
               <button [class.selected]="activeFilter() === 'ALL'" (click)="activeFilter.set('ALL')">All</button>
               <button [class.selected]="activeFilter() === 'INCOME'" (click)="activeFilter.set('INCOME')">Earnings</button>
               <button [class.selected]="activeFilter() === 'EXPENSE'" (click)="activeFilter.set('EXPENSE')">Expenses</button>
+              <button [class.selected]="activeFilter() === 'COD'" (click)="activeFilter.set('COD')">COD</button>
             </div>
           </div>
         </div>
@@ -198,16 +241,25 @@
               <span>{{ group.iso === todayIso ? 'Today' : (group.date | date:'EEEE, d MMM') }}</span>
               <span [class.amount-income]="group.net >= 0" [class.amount-expense]="group.net < 0">{{ group.net >= 0 ? '+' : '−' }}{{ (group.net < 0 ? -group.net : group.net) | currency:'INR':'symbol':'1.0-0' }}</span>
             </div>
-            @for (entry of group.items; track entry.id) {
-              <div class="entry-row">
-                <button class="entry-main" (click)="openForm(entry.type, entry)" [attr.aria-label]="'Edit ' + entryTitle(entry)">
-                  <span class="entry-icon" [class.entry-income]="entry.type === 'INCOME'" [class.entry-expense]="entry.type === 'EXPENSE'"><i-lucide [img]="entryIcon(entry)"></i-lucide></span>
-                  <span class="entry-text"><strong>{{ entryTitle(entry) }}</strong><small>{{ entrySubtitle(entry) }}</small></span>
-                  <strong class="entry-amount" [class.amount-income]="entry.type === 'INCOME'" [class.amount-expense]="entry.type === 'EXPENSE'">{{ entry.type === 'INCOME' ? '+' : '−' }}{{ entry.amount | currency:'INR':'symbol':'1.0-0' }}</strong>
+            @for (row of group.rows; track row.kind === 'entry' ? row.entry.id : 'orders-' + row.key) {
+              @if (row.kind === 'entry') {
+                <ng-container *ngTemplateOutlet="entryRow; context: { $implicit: row.entry }"></ng-container>
+              } @else {
+                <button class="orders-row" (click)="toggleOrders(row.key)" [attr.aria-expanded]="expandedOrders().has(row.key)">
+                  <span class="entry-icon entry-income"><i-lucide [img]="icons.Zap"></i-lucide></span>
+                  <span class="entry-text">
+                    <strong>{{ row.orders.length }} orders</strong>
+                    <small>{{ row.km | number:'1.0-1' }} km@if (row.codCount) { · {{ row.codCount }} COD ({{ row.cod | currency:'INR':'symbol':'1.0-0' }} cash) }</small>
+                  </span>
+                  <strong class="entry-amount amount-income">+{{ row.total | currency:'INR':'symbol':'1.0-0' }}</strong>
+                  <i-lucide class="chevron" [class.open]="expandedOrders().has(row.key)" [img]="icons.ChevronDown"></i-lucide>
                 </button>
-                <button class="row-action" aria-label="Edit entry" (click)="openForm(entry.type, entry)"><i-lucide [img]="icons.Pencil"></i-lucide></button>
-                <button class="row-action row-delete" aria-label="Delete entry" (click)="removeEntry(entry)"><i-lucide [img]="icons.Trash2"></i-lucide></button>
-              </div>
+                @if (expandedOrders().has(row.key)) {
+                  <div class="orders-detail">
+                    @for (entry of row.orders; track entry.id) { <ng-container *ngTemplateOutlet="entryRow; context: { $implicit: entry }"></ng-container> }
+                  </div>
+                }
+              }
             }
           } @empty {
             <div class="empty-state">
@@ -233,8 +285,32 @@
 
 <div class="bottom-bar">
   <button class="secondary-button" (click)="openForm('EXPENSE')"><i-lucide [img]="icons.Receipt"></i-lucide> Expense</button>
-  <button class="primary-button" (click)="openForm('INCOME')"><i-lucide [img]="icons.Plus"></i-lucide> Earning</button>
+  <button class="primary-button bar-main" (click)="quickOrderOpen.set(true)"><i-lucide [img]="icons.Zap"></i-lucide> Order</button>
+  <button class="secondary-button" (click)="openForm('INCOME')"><i-lucide [img]="icons.Plus"></i-lucide> Earning</button>
 </div>
+
+<ng-template #entryRow let-entry>
+  <div class="entry-row">
+    <button class="entry-main" (click)="openForm(entry.type, entry)" [attr.aria-label]="'Edit ' + entryTitle(entry)">
+      <span class="entry-icon" [class.entry-income]="entry.type === 'INCOME'" [class.entry-expense]="entry.type === 'EXPENSE'" [class.entry-cod]="entry.type === 'COD_SETTLEMENT'"><i-lucide [img]="entryIcon(entry)"></i-lucide></span>
+      <span class="entry-text">
+        <strong>{{ entryTitle(entry) }}</strong>
+        <small>
+          {{ entrySubtitle(entry) }}
+          @if (entry.codAmount) { <span class="pill-cod">COD {{ entry.codAmount | currency:'INR':'symbol':'1.0-0' }}</span> }
+          @if (entry.paidFrom === 'COD_CASH') { <span class="pill-cod">Paid from COD</span> }
+        </small>
+      </span>
+      @if (entry.type === 'COD_SETTLEMENT') {
+        <strong class="entry-amount amount-neutral">{{ entry.amount | currency:'INR':'symbol':'1.0-0' }}</strong>
+      } @else {
+        <strong class="entry-amount" [class.amount-income]="entry.type === 'INCOME'" [class.amount-expense]="entry.type === 'EXPENSE'">{{ entry.type === 'INCOME' ? '+' : '−' }}{{ entry.amount | currency:'INR':'symbol':'1.0-0' }}</strong>
+      }
+    </button>
+    <button class="row-action" aria-label="Edit entry" (click)="openForm(entry.type, entry)"><i-lucide [img]="icons.Pencil"></i-lucide></button>
+    <button class="row-action row-delete" aria-label="Delete entry" (click)="removeEntry(entry)"><i-lucide [img]="icons.Trash2"></i-lucide></button>
+  </div>
+</ng-template>
 
 <ng-template #changeBadge let-value let-goodWhenUp="goodWhenUp">
   @if (value !== null) {
@@ -247,7 +323,17 @@
 </ng-template>
 
 @if (form(); as f) {
-  <app-entry-form [type]="f.type" [entry]="f.entry" [history]="entries()" (saved)="onSaved($event)" (closed)="form.set(null)"></app-entry-form>
+  <app-entry-form [type]="f.type" [entry]="f.entry" [history]="entries()" [cashInHand]="cod().cashInHand" (saved)="onSaved($event)" (closed)="form.set(null)"></app-entry-form>
+}
+
+@if (quickOrderOpen()) {
+  <app-quick-order [history]="entries()" (saved)="onQuickOrder($event)" (closed)="quickOrderOpen.set(false)"></app-quick-order>
+}
+@if (endShiftOpen()) {
+  <app-end-shift [ordersToday]="today().orders" (saved)="onEndShift($event)" (closed)="endShiftOpen.set(false)"></app-end-shift>
+}
+@if (settleForm() !== undefined) {
+  <app-settle-cod [owed]="cod().owed" [entry]="settleForm() ?? null" (saved)="onSettled($event)" (closed)="settleForm.set(undefined)"></app-settle-cod>
 }
 
 @if (settingsOpen()) {
@@ -262,6 +348,8 @@
       <input class="form-input" id="rider-name" type="text" maxlength="30" placeholder="Rider" [ngModel]="settings().name" (ngModelChange)="updateSettings({ name: $event })">
       <label class="field-label" for="weekly-goal">Weekly take-home goal</label>
       <div class="amount-input"><span>₹</span><input id="weekly-goal" type="number" inputmode="numeric" min="0" step="100" placeholder="e.g. 6000" [ngModel]="settings().weeklyGoal" (ngModelChange)="updateSettings({ weeklyGoal: $event > 0 ? $event : null })"></div>
+      <label class="field-label" for="cod-limit">COD cash limit <span>(optional — warns you at 80%)</span></label>
+      <div class="amount-input"><span>₹</span><input id="cod-limit" type="number" inputmode="numeric" min="0" step="100" placeholder="e.g. 2000" [ngModel]="settings().codLimit" (ngModelChange)="updateSettings({ codLimit: $event > 0 ? $event : null })"></div>
       <span class="field-label">Theme</span>
       <div class="segmented segmented-full">
         <button [class.selected]="settings().theme === 'system'" (click)="updateSettings({ theme: 'system' })">Auto</button>
