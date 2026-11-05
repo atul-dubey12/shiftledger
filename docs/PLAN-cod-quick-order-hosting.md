@@ -1,5 +1,7 @@
 # ShiftLedger — Implementation plan: COD cash, Quick order, CSV import, hosted backend
 
+> **Status (5 Nov 2026):** Phase 1 is done and live. Phases 2–4 are replaced by `docs/PLAN-sync-phone-laptop.md`; follow that file instead.
+
 Audience: an AI coding agent (Cursor) working in this repo. Read the whole plan before starting. Ship the phases **in order**. Each phase is deployable on its own, and the user needs Phase 1 first.
 
 ---

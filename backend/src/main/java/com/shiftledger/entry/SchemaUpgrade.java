@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
  * ddl-auto=update never changes existing column types, so widen them to VARCHAR once at startup.
  */
 @Component
+@Profile("!prod")
 class SchemaUpgrade implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(SchemaUpgrade.class);
     private final JdbcTemplate jdbc;

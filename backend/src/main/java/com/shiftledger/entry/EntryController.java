@@ -17,7 +17,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/entries")
-@CrossOrigin(origins = "http://localhost:4200")
 public class EntryController {
     private static final BigDecimal MAX_HOURS = BigDecimal.valueOf(24);
     private final EntryRepository repository;

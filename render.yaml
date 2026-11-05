@@ -1,0 +1,21 @@
+# Render blueprint: New → Blueprint → pick this repo. Secret values are entered in the Render dashboard, never committed.
+services:
+  - type: web
+    name: shiftledger-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore
+    healthCheckPath: /api/health
+    envVars:
+      - key: DB_URL
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://atul-dubey12.github.io
