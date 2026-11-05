@@ -35,7 +35,7 @@
       <div class="mobile-brand"><span class="brand-mark"><i-lucide [img]="icons.Bike"></i-lucide></span>shiftledger</div>
       <div class="breadcrumb">Workspace <span>/</span> <strong>Overview</strong></div>
       <div class="top-actions">
-        <button class="icon-button" (click)="exportCsv()" aria-label="Download CSV for this period" title="Download CSV for this period"><i-lucide [img]="icons.Download"></i-lucide></button>
+        <button class="icon-button" (click)="toggleExportMenu('top', $event)" [attr.aria-expanded]="exportMenu()?.which === 'top'" aria-haspopup="menu" aria-label="Download CSV" title="Download CSV"><i-lucide [img]="icons.Download"></i-lucide></button>
         <button class="icon-button" (click)="toggleTheme()" aria-label="Toggle dark mode" title="Toggle dark mode"><i-lucide [img]="isDark() ? icons.Sun : icons.Moon"></i-lucide></button>
         <button class="icon-button" (click)="settingsOpen.set(true)" aria-label="Settings" title="Settings"><i-lucide [img]="icons.Settings2"></i-lucide></button>
       </div>
@@ -275,7 +275,7 @@
         }
         <div class="table-footer">
           <span>{{ activityCount() }} {{ activityCount() === 1 ? 'entry' : 'entries' }}@if (onDevice) { · saved on this device — download a CSV now and then as a backup }</span>
-          <button class="text-button" (click)="exportCsv()"><i-lucide [img]="icons.Download"></i-lucide> Download CSV</button>
+          <button class="text-button" (click)="toggleExportMenu('footer', $event)" [attr.aria-expanded]="exportMenu()?.which === 'footer'" aria-haspopup="menu"><i-lucide [img]="icons.Download"></i-lucide> Download CSV</button>
         </div>
       </section>
       <footer class="footer"><span>Made for the miles you ride <span>♥</span></span><span>SHIFTLEDGER</span></footer>
@@ -338,7 +338,7 @@
 
 @if (settingsOpen()) {
   <div class="modal-backdrop" (click)="settingsOpen.set(false)">
-    <section class="entry-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" (click)="$event.stopPropagation()" (keydown.escape)="settingsOpen.set(false)">
+    <section class="entry-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" (click)="$event.stopPropagation()" (keydown.escape)="onSettingsEscape()">
       <div class="modal-head">
         <span class="modal-icon modal-income"><i-lucide [img]="icons.Settings2"></i-lucide></span>
         <div><h2 id="settings-title">Settings</h2><p class="modal-subtitle">Saved on this device</p></div>
@@ -356,7 +356,48 @@
         <button [class.selected]="settings().theme === 'light'" (click)="updateSettings({ theme: 'light' })"><i-lucide [img]="icons.Sun"></i-lucide> Light</button>
         <button [class.selected]="settings().theme === 'dark'" (click)="updateSettings({ theme: 'dark' })"><i-lucide [img]="icons.Moon"></i-lucide> Night</button>
       </div>
+      <span class="field-label">Backup</span>
+      <label class="secondary-button import-button" for="import-csv"><i-lucide [img]="icons.Upload"></i-lucide> Import CSV</label>
+      <input id="import-csv" class="sr-only" type="file" accept=".csv,text/csv" (change)="onImportFile($event)">
       <div class="modal-actions"><button class="primary-button" (click)="settingsOpen.set(false)">Done <i-lucide [img]="icons.Check"></i-lucide></button></div>
+    </section>
+  </div>
+}
+
+@if (exportMenu(); as menu) {
+  <div class="export-menu" [class.export-menu-up]="menu.up" role="menu" [style.top.px]="menu.top" [style.right.px]="menu.right" (click)="$event.stopPropagation()">
+    <button type="button" role="menuitem" (click)="exportScope('period')">This period</button>
+    <button type="button" role="menuitem" (click)="exportScope('all')">Everything</button>
+  </div>
+}
+
+@if (importPreview(); as preview) {
+  <div class="modal-backdrop" (click)="cancelImport()">
+    <section class="entry-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" (click)="$event.stopPropagation()" (keydown.escape)="cancelImport()">
+      <div class="modal-head">
+        <span class="modal-icon modal-income"><i-lucide [img]="icons.Upload"></i-lucide></span>
+        <div><h2 id="import-title">Import CSV</h2><p class="modal-subtitle">Existing entries stay as they are</p></div>
+        <button class="icon-button modal-close" aria-label="Close" (click)="cancelImport()" [disabled]="preview.writing"><i-lucide [img]="icons.X"></i-lucide></button>
+      </div>
+      @if (preview.checking) {
+        <p class="import-summary">Checking this file…</p>
+      } @else {
+        <p class="import-summary">
+          <strong>{{ preview.imported }} new</strong>, {{ preview.duplicates }} already in the app (skipped)@if (preview.errors.length === 1) {, 1 problem: row {{ preview.errors[0].row }} — {{ preview.errors[0].message }} }@else if (preview.errors.length > 1) {, {{ preview.errors.length }} problems }
+        </p>
+        @if (preview.errors.length > 1) {
+          <ul class="import-problems">
+            @for (problem of preview.errors; track $index) { <li>row {{ problem.row }} — {{ problem.message }}</li> }
+          </ul>
+        }
+      }
+      @if (preview.failed) { <p class="import-failed" role="alert">{{ preview.failed }}</p> }
+      <div class="modal-actions">
+        @if (preview.imported > 0) {
+          <button class="primary-button" (click)="confirmImport()" [disabled]="preview.checking || preview.writing">{{ preview.writing ? 'Importing…' : 'Import ' + preview.imported + (preview.imported === 1 ? ' entry' : ' entries') }}</button>
+        }
+        <button class="secondary-button" (click)="cancelImport()" [disabled]="preview.writing">Cancel</button>
+      </div>
     </section>
   </div>
 }

@@ -1,12 +1,14 @@
 import { CurrencyPipe, DatePipe, DecimalPipe, NgTemplateOutlet } from '@angular/common';
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Component, HostListener, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule, ArrowDownLeft, ArrowUpRight, Bike, CalendarDays, Check, ChevronLeft, ChevronRight, CircleDollarSign, CreditCard,
   Download, Flame, Fuel, Gauge, LayoutDashboard, Lightbulb, Moon, Package, Pencil, Plus, Receipt, Route, Search, Settings2, ShieldCheck,
-  Smartphone, Sparkles, Sun, Target, Timer, Trash2, TrendingDown, TrendingUp, Undo2, Utensils, Wallet, Wrench, X,
+  Smartphone, Sparkles, Sun, Target, Timer, Trash2, TrendingDown, TrendingUp, Undo2, Upload, Utensils, Wallet, Wrench, X,
   Banknote, ChevronDown, HandCoins, Zap
 } from 'lucide-angular';
+import { classifyImport, parseCsv, CsvError } from './csv';
 import { EntryDraft, EntryType, LedgerEntry, isQuickOrder } from './entry.model';
 import { EntryService } from './entry.service';
 import { EntryFormComponent } from './entry-form.component';
@@ -23,6 +25,15 @@ type ActivityFilter = 'ALL' | 'INCOME' | 'EXPENSE' | 'COD';
 type ActivityRow = { kind: 'entry'; entry: LedgerEntry } | { kind: 'orders'; key: string; orders: LedgerEntry[]; total: number; km: number; cod: number; codCount: number };
 const DEFAULT_SETTINGS: Settings = { name: '', weeklyGoal: null, theme: 'system', codLimit: null };
 interface Toast { message: string; actionLabel?: string; action?: () => void; }
+interface ImportPreview {
+  drafts: EntryDraft[];
+  imported: number;
+  duplicates: number;
+  errors: CsvError[];
+  checking: boolean;
+  writing: boolean;
+  failed: string;
+}
 interface Insight { icon: keyof AppComponent['icons']; text: string; }
 
 const SETTINGS_KEY = 'shiftledger.settings';
@@ -41,7 +52,7 @@ export class AppComponent {
   readonly icons = {
     ArrowDownLeft, ArrowUpRight, Bike, CalendarDays, Check, ChevronLeft, ChevronRight, CircleDollarSign, CreditCard, Download, Flame, Fuel, Gauge,
     LayoutDashboard, Lightbulb, Moon, Package, Pencil, Plus, Receipt, Route, Search, Settings2, ShieldCheck, Smartphone, Sparkles, Sun, Target,
-    Timer, Trash2, TrendingDown, TrendingUp, Undo2, Utensils, Wallet, Wrench, X, Banknote, ChevronDown, HandCoins, Zap
+    Timer, Trash2, TrendingDown, TrendingUp, Undo2, Upload, Utensils, Wallet, Wrench, X, Banknote, ChevronDown, HandCoins, Zap
   };
   readonly periods: Period[] = ['day', 'week', 'month'];
   private readonly service = inject(EntryService);
@@ -62,6 +73,9 @@ export class AppComponent {
   readonly settleForm = signal<LedgerEntry | null | undefined>(undefined);
   readonly expandedOrders = signal<Set<string>>(new Set());
   readonly toast = signal<Toast | null>(null);
+  readonly exportMenu = signal<{ which: 'top' | 'footer'; top: number; right: number; up: boolean } | null>(null);
+  readonly importPreview = signal<ImportPreview | null>(null);
+  private importToken = 0;
   readonly settings = signal<Settings>(this.loadSettings());
   readonly hoveredDay = signal<string | null>(null);
   private toastTimer?: ReturnType<typeof setTimeout>;
@@ -277,8 +291,95 @@ export class AppComponent {
   }
   runToastAction(): void { const action = this.toast()?.action; this.toast.set(null); action?.(); }
 
-  exportCsv(): void {
-    this.service.exportCsv(isoDate(this.range().start), isoDate(addDays(this.range().end, -1)));
+  @HostListener('document:click')
+  closeExportMenu(): void { this.exportMenu.set(null); }
+
+  @HostListener('window:scroll')
+  closeExportMenuOnScroll(): void { if (this.exportMenu()) this.exportMenu.set(null); }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.exportMenu()) { this.exportMenu.set(null); return; }
+    if (this.importPreview() && !this.importPreview()?.writing) this.cancelImport();
+  }
+
+  toggleExportMenu(which: 'top' | 'footer', event: Event): void {
+    event.stopPropagation();
+    if (this.exportMenu()?.which === which) { this.exportMenu.set(null); return; }
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const up = which === 'footer';
+    this.exportMenu.set({ which, top: up ? rect.top - 6 : rect.bottom + 6, right: window.innerWidth - rect.right, up });
+  }
+
+  exportScope(scope: 'period' | 'all'): void {
+    this.exportMenu.set(null);
+    if (scope === 'all') { this.service.exportCsv('all'); return; }
+    this.service.exportCsv('period', isoDate(this.range().start), isoDate(addDays(this.range().end, -1)));
+  }
+
+  onImportFile(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (this.loading()) { this.showToast({ message: 'Still loading entries. Try again in a moment.' }); return; }
+    const token = ++this.importToken;
+    file.text().then((text) => {
+      if (token !== this.importToken) return;
+      const parsed = parseCsv(text);
+      if (this.onDevice || parsed.drafts.length === 0) {
+        const { fresh, duplicates } = classifyImport(parsed.drafts, this.entries());
+        this.importPreview.set({ drafts: fresh, imported: fresh.length, duplicates, errors: parsed.errors, checking: false, writing: false, failed: '' });
+        return;
+      }
+      this.importPreview.set({ drafts: parsed.drafts, imported: 0, duplicates: 0, errors: parsed.errors, checking: true, writing: false, failed: '' });
+      this.service.previewImport(parsed.drafts).subscribe({
+        next: (result) => {
+          if (token !== this.importToken) return;
+          this.importPreview.set({
+            drafts: parsed.drafts, imported: result.imported, duplicates: result.duplicates,
+            errors: [...parsed.errors, ...result.errors], checking: false, writing: false, failed: '',
+          });
+        },
+        error: () => {
+          if (token !== this.importToken) return;
+          this.importPreview.update((current) => current ? { ...current, checking: false, failed: 'Could not check this file. Tap Cancel and try again.' } : current);
+        },
+      });
+    }).catch(() => this.showToast({ message: 'Could not read that file.' }));
+  }
+
+  confirmImport(): void {
+    const preview = this.importPreview();
+    if (!preview || preview.checking || preview.writing || preview.imported < 1) return;
+    const token = this.importToken;
+    this.importPreview.set({ ...preview, writing: true, failed: '' });
+    this.service.saveImport(preview.drafts).subscribe({
+      next: (result) => {
+        if (token !== this.importToken) return;
+        this.importPreview.set(null);
+        const count = result.imported;
+        this.showToast({ message: `Imported ${count} ${count === 1 ? 'entry' : 'entries'}` });
+        this.refresh();
+      },
+      error: (err: HttpErrorResponse) => {
+        if (token !== this.importToken) return;
+        this.importPreview.update((current) => current ? {
+          ...current, writing: false, failed: this.service.errorMessage(err, 'Could not import these entries. Tap Import to retry.'),
+        } : current);
+      },
+    });
+  }
+
+  cancelImport(): void {
+    if (this.importPreview()?.writing) return;
+    this.importToken++;
+    this.importPreview.set(null);
+  }
+
+  onSettingsEscape(): void {
+    if (this.importPreview()) { this.cancelImport(); return; }
+    this.settingsOpen.set(false);
   }
 
   updateSettings(patch: Partial<Settings>): void { this.settings.update((s) => ({ ...s, ...patch })); }

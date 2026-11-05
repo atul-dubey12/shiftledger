@@ -1,9 +1,16 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 import { EntryDraft, LedgerEntry } from './entry.model';
 import { DeviceStore } from './device-store';
+import { isoDate } from './ledger';
 import { STORAGE_MODE } from './storage.config';
+
+export interface ImportResult {
+  imported: number;
+  duplicates: number;
+  errors: { row: number; message: string }[];
+}
 
 @Injectable({ providedIn: 'root' })
 export class EntryService {
@@ -17,11 +24,31 @@ export class EntryService {
   update(id: number, entry: EntryDraft): Observable<LedgerEntry> { return this.device?.update(id, entry) ?? this.http.put<LedgerEntry>(`${this.api}/${id}`, entry); }
   delete(id: number): Observable<void> { return this.device?.delete(id) ?? this.http.delete<void>(`${this.api}/${id}`); }
 
-  exportCsv(from: string, to: string): void {
+  exportCsv(scope: 'period' | 'all', from = '', to = ''): void {
+    if (scope === 'all') {
+      const name = `shiftledger-all-${isoDate(new Date())}.csv`;
+      if (!this.device) { window.location.href = `${this.api}/export`; return; }
+      this.download(this.device.csv('0000-01-01', '9999-12-31'), name);
+      return;
+    }
     if (!this.device) { window.location.href = `${this.api}/export?from=${from}&to=${to}`; return; }
+    this.download(this.device.csv(from, to), `shiftledger-${from}-to-${to}.csv`);
+  }
+
+  /** Server re-checks every row. Device mode classifies locally and does not call this. */
+  previewImport(entries: EntryDraft[]): Observable<ImportResult> {
+    return this.http.post<ImportResult>(`${this.api}/import`, { entries, dryRun: true });
+  }
+
+  saveImport(entries: EntryDraft[]): Observable<ImportResult> {
+    if (this.device) return this.device.importMany(entries).pipe(map((saved) => ({ imported: saved.length, duplicates: 0, errors: [] })));
+    return this.http.post<ImportResult>(`${this.api}/import`, { entries, dryRun: false });
+  }
+
+  private download(csv: string, filename: string): void {
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([this.device.csv(from, to)], { type: 'text/csv;charset=utf-8' }));
-    link.download = `shiftledger-${from}-to-${to}.csv`;
+    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    link.download = filename;
     link.click();
     URL.revokeObjectURL(link.href);
   }

@@ -2,12 +2,16 @@ package com.shiftledger.entry;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -50,6 +54,35 @@ public class EntryController {
         repository.deleteById(id);
     }
 
+    @PostMapping("/import")
+    @Transactional
+    public ImportResponse importEntries(@RequestBody ImportRequest request) {
+        List<EntryRequest> incoming = request.entries() == null ? List.of() : request.entries();
+        List<ImportError> errors = new ArrayList<>();
+        List<EntryRequest> valid = new ArrayList<>();
+        for (int i = 0; i < incoming.size(); i++) {
+            String message = validationMessage(incoming.get(i));
+            if (message != null) errors.add(new ImportError(i + 1, message));
+            else valid.add(incoming.get(i));
+        }
+        Map<String, Integer> counts = new HashMap<>();
+        for (Entry existing : repository.findAll()) counts.merge(duplicateKey(existing), 1, Integer::sum);
+        List<EntryRequest> fresh = new ArrayList<>();
+        int duplicates = 0;
+        for (EntryRequest row : valid) {
+            String key = duplicateKey(row);
+            int left = counts.getOrDefault(key, 0);
+            if (left > 0) {
+                counts.put(key, left - 1);
+                duplicates++;
+            } else fresh.add(row);
+        }
+        if (!request.dryRun()) {
+            for (EntryRequest row : fresh) repository.save(new Entry(row, clean(row.note())));
+        }
+        return new ImportResponse(fresh.size(), duplicates, errors);
+    }
+
     @GetMapping(value = "/export", produces = "text/csv")
     public ResponseEntity<String> export(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
                                          @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
@@ -66,48 +99,89 @@ public class EntryController {
                     .append(e.getPaidFrom() == null ? "" : e.getPaidFrom()).append(',')
                     .append(e.getSettlementMethod() == null ? "" : e.getSettlementMethod()).append('\n');
         }
+        String filename = (from == null && to == null)
+                ? "shiftledger-all-" + LocalDate.now() + ".csv"
+                : "shiftledger-" + LocalDate.now() + ".csv";
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"shiftledger-" + LocalDate.now() + ".csv\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                 .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
                 .body(csv.toString());
     }
 
     private void validate(EntryRequest request) {
-        if (request.type() == null || request.amount() == null || request.date() == null) throw badRequest("Type, amount, and date are required.");
+        String message = validationMessage(request);
+        if (message != null) throw badRequest(message);
+    }
+
+    private String validationMessage(EntryRequest request) {
+        if (request == null || request.type() == null || request.amount() == null || request.date() == null) return "Type, amount, and date are required.";
         // A COD order whose payout isn't known yet, or an end-of-shift entry that only records hours, may carry ₹0.
         boolean zeroAllowed = request.type() == EntryType.INCOME && (positive(request.codAmount()) || positive(request.hoursWorked()));
-        if (request.amount().signum() < 0 || (request.amount().signum() == 0 && !zeroAllowed)) throw badRequest("Enter an amount greater than ₹0.");
-        if (request.amount().compareTo(BigDecimal.valueOf(10_000_000)) >= 0) throw badRequest("Amount is too large.");
-        if (request.date().isAfter(LocalDate.now().plusDays(1))) throw badRequest("Date cannot be in the future.");
+        if (request.amount().signum() < 0 || (request.amount().signum() == 0 && !zeroAllowed)) return "Enter an amount greater than ₹0.";
+        if (request.amount().compareTo(BigDecimal.valueOf(10_000_000)) >= 0) return "Amount is too large.";
+        if (request.date().isAfter(LocalDate.now().plusDays(1))) return "Date cannot be in the future.";
         boolean hasShiftDetails = request.orderCount() != null || request.hoursWorked() != null || request.distanceKm() != null;
         switch (request.type()) {
             case INCOME -> {
-                if (request.category() != null) throw badRequest("Income entries do not have an expense category.");
-                if (request.paidFrom() != null) throw badRequest("Only expenses can be paid from COD cash.");
+                if (request.category() != null) return "Income entries do not have an expense category.";
+                if (request.paidFrom() != null) return "Only expenses can be paid from COD cash.";
             }
             case EXPENSE -> {
-                if (request.category() == null) throw badRequest("Choose an expense category.");
-                if (hasShiftDetails) throw badRequest("Orders, hours and distance belong on shift earnings.");
-                if (request.codAmount() != null) throw badRequest("COD cash is recorded on orders, not expenses.");
+                if (request.category() == null) return "Choose an expense category.";
+                if (hasShiftDetails) return "Orders, hours and distance belong on shift earnings.";
+                if (request.codAmount() != null) return "COD cash is recorded on orders, not expenses.";
             }
             case COD_SETTLEMENT -> {
-                if (request.settlementMethod() == null) throw badRequest("Choose how the COD cash was settled.");
+                if (request.settlementMethod() == null) return "Choose how the COD cash was settled.";
                 if (request.category() != null || hasShiftDetails || request.codAmount() != null || request.paidFrom() != null) {
-                    throw badRequest("A COD settlement only has an amount, date, method and note.");
+                    return "A COD settlement only has an amount, date, method and note.";
                 }
             }
         }
-        if (request.type() != EntryType.COD_SETTLEMENT && request.settlementMethod() != null) throw badRequest("Settlement method only applies to COD settlements.");
+        if (request.type() != EntryType.COD_SETTLEMENT && request.settlementMethod() != null) return "Settlement method only applies to COD settlements.";
         if (request.codAmount() != null && (request.codAmount().signum() < 0 || request.codAmount().compareTo(BigDecimal.valueOf(100_000)) >= 0)) {
-            throw badRequest("COD cash must be between ₹0 and ₹1,00,000.");
+            return "COD cash must be between ₹0 and ₹1,00,000.";
         }
-        if (request.orderCount() != null && (request.orderCount() < 0 || request.orderCount() > 500)) throw badRequest("Orders must be between 0 and 500.");
+        if (request.orderCount() != null && (request.orderCount() < 0 || request.orderCount() > 500)) return "Orders must be between 0 and 500.";
         if (request.hoursWorked() != null && (request.hoursWorked().signum() < 0 || request.hoursWorked().compareTo(MAX_HOURS) > 0)) {
-            throw badRequest("Hours must be between 0 and 24.");
+            return "Hours must be between 0 and 24.";
         }
         if (request.distanceKm() != null && (request.distanceKm().signum() < 0 || request.distanceKm().compareTo(BigDecimal.valueOf(2000)) > 0)) {
-            throw badRequest("Distance must be between 0 and 2000 km.");
+            return "Distance must be between 0 and 2000 km.";
         }
+        return null;
+    }
+
+    /** Same fields, in the same order, as duplicateKey in csv.ts. Amounts drop trailing zeros so 40 and 40.00 match. */
+    private String duplicateKey(Entry entry) {
+        return duplicateKey(entry.getDate(), entry.getType(), entry.getCategory(), entry.getAmount(), entry.getOrderCount(),
+                entry.getHoursWorked(), entry.getDistanceKm(), entry.getNote(), entry.getCodAmount(), entry.getPaidFrom(), entry.getSettlementMethod());
+    }
+
+    private String duplicateKey(EntryRequest request) {
+        return duplicateKey(request.date(), request.type(), request.category(), request.amount(), request.orderCount(),
+                request.hoursWorked(), request.distanceKm(), clean(request.note()), request.codAmount(), request.paidFrom(), request.settlementMethod());
+    }
+
+    private static String duplicateKey(LocalDate date, EntryType type, ExpenseCategory category, BigDecimal amount, Integer orderCount,
+                                       BigDecimal hoursWorked, BigDecimal distanceKm, String note, BigDecimal codAmount, PaidFrom paidFrom,
+                                       SettlementMethod settlementMethod) {
+        return String.join("\u001f",
+                date == null ? "" : date.toString(),
+                type == null ? "" : type.name(),
+                category == null ? "" : category.name(),
+                plain(amount),
+                orderCount == null ? "" : orderCount.toString(),
+                plain(hoursWorked),
+                plain(distanceKm),
+                note == null ? "" : note,
+                plain(codAmount),
+                paidFrom == null ? "" : paidFrom.name(),
+                settlementMethod == null ? "" : settlementMethod.name());
+    }
+
+    private static String plain(BigDecimal value) {
+        return value == null ? "" : value.stripTrailingZeros().toPlainString();
     }
 
     private static boolean positive(BigDecimal value) { return value != null && value.signum() > 0; }
@@ -124,4 +198,8 @@ public class EntryController {
         if (note == null || note.isBlank()) return null;
         return note.trim().substring(0, Math.min(note.trim().length(), 180));
     }
+
+    public record ImportRequest(List<EntryRequest> entries, boolean dryRun) {}
+    public record ImportError(int row, String message) {}
+    public record ImportResponse(int imported, int duplicates, List<ImportError> errors) {}
 }
