@@ -1,2 +1,2 @@
-/** Where entries live. The GitHub Pages build swaps this file for storage.config.pages.ts (see angular.json). */
-export const STORAGE_MODE: 'api' | 'device' = 'api';
+/** Where entries live. The GitHub Pages builds swap this file (see angular.json): `pages` → on-device, `pages-api` → the hosted API. */
+export const STORAGE: { mode: 'api' | 'device'; apiBaseUrl: string } = { mode: 'api', apiBaseUrl: '' };

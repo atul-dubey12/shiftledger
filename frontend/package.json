@@ -2,7 +2,7 @@
   "name": "shiftledger-web",
   "version": "0.1.0",
   "private": true,
-  "scripts": { "start": "ng serve", "build": "ng build", "build:pages": "ng build --configuration pages", "deploy": "./scripts/deploy-pages.sh" },
+  "scripts": { "start": "ng serve", "build": "ng build", "build:pages": "ng build --configuration pages", "build:pages-api": "ng build --configuration pages-api", "deploy": "./scripts/deploy-pages.sh" },
   "dependencies": {
     "@angular/animations": "^19.2.0",
     "@angular/common": "^19.2.0",

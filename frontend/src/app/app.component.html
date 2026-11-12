@@ -42,6 +42,20 @@
     </header>
 
     <div class="content-wrap">
+      @if (slowNetwork()) { <div class="connection-banner wake-banner" role="status"><i-lucide [img]="icons.Timer"></i-lucide>Waking up the server… first load can take up to a minute.</div> }
+      @if (needsKey()) { <div class="connection-banner" role="alert"><i-lucide [img]="icons.ShieldCheck"></i-lucide>Enter your server key to load your entries. <button class="text-button" (click)="settingsOpen.set(true)">Open Settings</button></div> }
+      @if (deviceEntries(); as local) {
+        @if (!needsKey() && !loading()) {
+          <div class="migrate-card" role="region" aria-label="Entries saved only on this device">
+            <i-lucide [img]="icons.Smartphone"></i-lucide>
+            <p><strong>{{ local.length }} {{ local.length === 1 ? 'entry is' : 'entries are' }} saved only on this device.</strong> Upload them to your account so they show on all your devices.</p>
+            <div class="migrate-actions">
+              <button class="primary-button" (click)="uploadDeviceEntries()"><i-lucide [img]="icons.Upload"></i-lucide> Upload</button>
+              <button class="secondary-button" (click)="hideDeviceCard()">Not now</button>
+            </div>
+          </div>
+        }
+      }
       @if (error()) { <div class="connection-banner" role="alert"><i-lucide [img]="icons.CircleDollarSign"></i-lucide>{{ error() }} <button class="text-button" (click)="refresh()">Retry</button></div> }
 
       <section class="welcome-row">
@@ -341,9 +355,19 @@
     <section class="entry-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" (click)="$event.stopPropagation()" (keydown.escape)="onSettingsEscape()">
       <div class="modal-head">
         <span class="modal-icon modal-income"><i-lucide [img]="icons.Settings2"></i-lucide></span>
-        <div><h2 id="settings-title">Settings</h2><p class="modal-subtitle">Saved on this device</p></div>
+        <div><h2 id="settings-title">Settings</h2><p class="modal-subtitle">{{ onDevice ? 'Saved on this device' : 'Entries sync to your server' }}</p></div>
         <button class="icon-button modal-close" aria-label="Close" (click)="settingsOpen.set(false)"><i-lucide [img]="icons.X"></i-lucide></button>
       </div>
+      @if (!onDevice) {
+        <label class="field-label" for="server-key">Server key <span>(once per device)</span></label>
+        <div class="key-row">
+          <input class="form-input" id="server-key" [type]="showKey() ? 'text' : 'password'" autocomplete="off" autocapitalize="off" spellcheck="false"
+                 placeholder="Paste your server key" [ngModel]="apiKeyDraft()" (ngModelChange)="apiKeyDraft.set($event)" (keydown.enter)="saveServerKey()">
+          <button type="button" class="secondary-button" (click)="showKey.set(!showKey())" [attr.aria-pressed]="showKey()">{{ showKey() ? 'Hide' : 'Show' }}</button>
+          <button type="button" class="primary-button" (click)="saveServerKey()" [disabled]="!apiKeyDraft().trim()">Connect</button>
+        </div>
+        @if (needsKey()) { <p class="form-error" role="alert">{{ apiKeyDraft() ? 'That key was not accepted. Check it and tap Connect.' : 'Enter your server key to load your entries.' }}</p> }
+      }
       <label class="field-label" for="rider-name">Your name</label>
       <input class="form-input" id="rider-name" type="text" maxlength="30" placeholder="Rider" [ngModel]="settings().name" (ngModelChange)="updateSettings({ name: $event })">
       <label class="field-label" for="weekly-goal">Weekly take-home goal</label>
@@ -376,7 +400,7 @@
     <section class="entry-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" (click)="$event.stopPropagation()" (keydown.escape)="cancelImport()">
       <div class="modal-head">
         <span class="modal-icon modal-income"><i-lucide [img]="icons.Upload"></i-lucide></span>
-        <div><h2 id="import-title">Import CSV</h2><p class="modal-subtitle">Existing entries stay as they are</p></div>
+        <div><h2 id="import-title">Import CSV</h2><p class="modal-subtitle">Entries already there are skipped</p></div>
         <button class="icon-button modal-close" aria-label="Close" (click)="cancelImport()" [disabled]="preview.writing"><i-lucide [img]="icons.X"></i-lucide></button>
       </div>
       @if (preview.checking) {

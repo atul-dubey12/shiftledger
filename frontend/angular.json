@@ -56,6 +56,23 @@
                   "with": "src/app/storage.config.pages.ts"
                 }
               ]
+            },
+            "pages-api": {
+              "budgets": [
+                {
+                  "type": "initial",
+                  "maximumWarning": "500kb",
+                  "maximumError": "1mb"
+                }
+              ],
+              "outputHashing": "all",
+              "baseHref": "/shiftledger/",
+              "fileReplacements": [
+                {
+                  "replace": "src/app/storage.config.ts",
+                  "with": "src/app/storage.config.pages-api.ts"
+                }
+              ]
             }
           },
           "defaultConfiguration": "production"

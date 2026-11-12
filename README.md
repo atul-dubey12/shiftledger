@@ -38,4 +38,4 @@ Angular 19 is used in this initial scaffold to fit the Node 18 runtime available
 
 Live at https://atul-dubey12.github.io/shiftledger/. To publish changes: `cd frontend && npm run deploy` (builds and pushes to the `gh-pages` branch).
 
-GitHub Pages only serves static files, so the hosted build (`npm run build:pages`) stores entries **in the browser on that device** instead of calling the API. Clearing browser data erases them, so use **Download CSV** now and then as a backup. Running locally with `npm start` still uses the Spring Boot API.
+The hosted site talks to the API on Render (`https://shiftledger-api.onrender.com`, Postgres on Neon), so every device sees the same entries. On each new device, open **Settings → Server key**, paste the key once and tap **Connect**. Entries saved by the old on-device build show an **Upload** card; uploading skips anything already on the server and keeps the local copy as a backup. The free Render service sleeps when idle, so the first load can take up to a minute. `MODE=device npm run deploy` still publishes the old on-device build.

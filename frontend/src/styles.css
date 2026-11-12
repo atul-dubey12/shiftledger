@@ -154,6 +154,17 @@ h1, h2 { font-family: Manrope, sans-serif; margin: 0; color: var(--ink); }
   color: var(--warn); font-size: 14px; display: flex; align-items: center; gap: 8px;
 }
 .connection-banner .text-button { margin-left: auto; color: inherit; }
+.wake-banner { border-color: var(--line); background: var(--surface-3); color: var(--muted); }
+.migrate-card {
+  margin: 0 0 18px; padding: 14px 16px; border: 1px solid var(--accent); border-radius: 12px; background: var(--accent-soft);
+  color: var(--accent-ink); font-size: 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.migrate-card p { flex: 1 1 220px; margin: 0; }
+.migrate-actions { display: flex; gap: 8px; }
+.migrate-actions button { min-height: 44px; }
+.key-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.key-row .form-input { flex: 1 1 180px; width: auto; }
+.key-row button { min-height: 44px; }
 
 /* ── Header & period ─────────────────────────────────────── */
 .welcome-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }

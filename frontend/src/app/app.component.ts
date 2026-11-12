@@ -11,6 +11,7 @@ import {
 import { classifyImport, parseCsv, CsvError } from './csv';
 import { EntryDraft, EntryType, LedgerEntry, isQuickOrder } from './entry.model';
 import { EntryService } from './entry.service';
+import { NetworkStatus, readApiKey, saveApiKey } from './api.interceptor';
 import { EntryFormComponent } from './entry-form.component';
 import { QuickOrderComponent } from './quick-order.component';
 import { SettleCodComponent } from './settle-cod.component';
@@ -37,6 +38,9 @@ interface ImportPreview {
 interface Insight { icon: keyof AppComponent['icons']; text: string; }
 
 const SETTINGS_KEY = 'shiftledger.settings';
+/** Entries saved by the old on-device build, and when they were uploaded to the server. Never deleted: they stay as a backup. */
+const DEVICE_ENTRIES_KEY = 'shiftledger.entries';
+const MIGRATED_KEY = 'shiftledger.migratedAt';
 const PERIOD_NAMES: Record<Period, { current: string; previous: string }> = {
   day: { current: 'Today', previous: 'yesterday' },
   week: { current: 'This week', previous: 'same point last week' },
@@ -58,6 +62,13 @@ export class AppComponent {
   private readonly service = inject(EntryService);
 
   readonly onDevice = this.service.onDevice;
+  readonly slowNetwork = inject(NetworkStatus).slow;
+  /** True when the server rejected us for a missing or wrong key. */
+  readonly needsKey = signal(false);
+  readonly apiKeyDraft = signal(readApiKey());
+  readonly showKey = signal(false);
+  /** Entries from the old phone-only build waiting to be uploaded; null when there is nothing to offer. */
+  readonly deviceEntries = signal<LedgerEntry[] | null>(this.onDevice ? null : this.loadDeviceEntries());
   readonly entries = signal<LedgerEntry[]>([]);
   readonly loading = signal(true);
   readonly error = signal('');
@@ -219,6 +230,7 @@ export class AppComponent {
   });
 
   constructor() {
+    this.service.wake();
     this.refresh();
     effect(() => {
       document.documentElement.dataset['theme'] = this.isDark() ? 'dark' : 'light';
@@ -228,8 +240,18 @@ export class AppComponent {
 
   refresh(): void {
     this.service.list().subscribe({
-      next: (entries) => { this.entries.set(entries); this.loading.set(false); this.error.set(''); },
-      error: () => { this.error.set('Could not connect to the tracker API. Start the Spring Boot server and refresh.'); this.loading.set(false); },
+      next: (entries) => { this.entries.set(entries); this.loading.set(false); this.error.set(''); this.needsKey.set(false); },
+      error: (err: HttpErrorResponse) => {
+        this.loading.set(false);
+        if (err instanceof HttpErrorResponse && err.status === 401) {
+          this.error.set('');
+          this.needsKey.set(true);
+          this.settingsOpen.set(true);
+          setTimeout(() => document.getElementById('server-key')?.focus());
+          return;
+        }
+        this.error.set('Could not reach the server. Check your signal and tap Retry.');
+      },
     });
   }
 
@@ -313,8 +335,9 @@ export class AppComponent {
 
   exportScope(scope: 'period' | 'all'): void {
     this.exportMenu.set(null);
-    if (scope === 'all') { this.service.exportCsv('all'); return; }
-    this.service.exportCsv('period', isoDate(this.range().start), isoDate(addDays(this.range().end, -1)));
+    const download = scope === 'all' ? this.service.exportCsv('all')
+      : this.service.exportCsv('period', isoDate(this.range().start), isoDate(addDays(this.range().end, -1)));
+    download?.subscribe({ error: (err: HttpErrorResponse) => this.showToast({ message: this.service.errorMessage(err, 'Could not download the CSV.') }) });
   }
 
   onImportFile(event: Event): void {
@@ -324,6 +347,7 @@ export class AppComponent {
     if (!file) return;
     if (this.loading()) { this.showToast({ message: 'Still loading entries. Try again in a moment.' }); return; }
     const token = ++this.importToken;
+    this.migrating = false;
     file.text().then((text) => {
       if (token !== this.importToken) return;
       const parsed = parseCsv(text);
@@ -358,6 +382,7 @@ export class AppComponent {
       next: (result) => {
         if (token !== this.importToken) return;
         this.importPreview.set(null);
+        if (this.migrating) { this.migrating = false; this.markMigrated(); }
         const count = result.imported;
         this.showToast({ message: `Imported ${count} ${count === 1 ? 'entry' : 'entries'}` });
         this.refresh();
@@ -374,12 +399,68 @@ export class AppComponent {
   cancelImport(): void {
     if (this.importPreview()?.writing) return;
     this.importToken++;
+    this.migrating = false;
     this.importPreview.set(null);
   }
 
   onSettingsEscape(): void {
     if (this.importPreview()) { this.cancelImport(); return; }
     this.settingsOpen.set(false);
+  }
+
+  saveServerKey(): void {
+    const key = this.apiKeyDraft().trim();
+    this.apiKeyDraft.set(key);
+    saveApiKey(key);
+    if (!key) return;
+    this.loading.set(true);
+    this.service.list().subscribe({
+      next: (entries) => {
+        this.entries.set(entries); this.loading.set(false); this.error.set(''); this.needsKey.set(false);
+        this.settingsOpen.set(false);
+        this.showToast({ message: 'Connected — your entries are synced' });
+      },
+      error: (err: HttpErrorResponse) => {
+        this.loading.set(false);
+        this.needsKey.set(err instanceof HttpErrorResponse && err.status === 401);
+        if (!this.needsKey()) this.showToast({ message: this.service.errorMessage(err, 'Could not reach the server.') });
+      },
+    });
+  }
+
+  /** Sends the old phone-only entries through the normal import preview; the server skips any it already has. */
+  uploadDeviceEntries(): void {
+    const local = this.deviceEntries();
+    if (!local?.length) return;
+    // Oldest first, keeping the old id order within a day, so COD cash-in-hand replays correctly.
+    const drafts = [...local].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id).map(({ id, ...draft }) => draft as EntryDraft);
+    const token = ++this.importToken;
+    this.migrating = true;
+    this.importPreview.set({ drafts, imported: 0, duplicates: 0, errors: [], checking: true, writing: false, failed: '' });
+    this.service.previewImport(drafts).subscribe({
+      next: (result) => {
+        if (token !== this.importToken) return;
+        this.importPreview.set({ drafts, imported: result.imported, duplicates: result.duplicates, errors: result.errors, checking: false, writing: false, failed: '' });
+        if (result.imported === 0 && result.errors.length === 0) this.markMigrated();
+      },
+      error: (err: HttpErrorResponse) => {
+        if (token !== this.importToken) return;
+        this.importPreview.update((current) => current ? { ...current, checking: false, failed: this.service.errorMessage(err, 'Could not check these entries. Tap Cancel and try again.') } : current);
+      },
+    });
+  }
+  hideDeviceCard(): void { this.deviceEntries.set(null); }
+  private migrating = false;
+  private markMigrated(): void {
+    try { localStorage.setItem(MIGRATED_KEY, new Date().toISOString()); } catch { /* storage blocked */ }
+    this.deviceEntries.set(null);
+  }
+  private loadDeviceEntries(): LedgerEntry[] | null {
+    try {
+      if (localStorage.getItem(MIGRATED_KEY)) return null;
+      const list = JSON.parse(localStorage.getItem(DEVICE_ENTRIES_KEY) ?? '[]');
+      return Array.isArray(list) && list.length ? list : null;
+    } catch { return null; }
   }
 
   updateSettings(patch: Partial<Settings>): void { this.settings.update((s) => ({ ...s, ...patch })); }
