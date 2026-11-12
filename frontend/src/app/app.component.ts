@@ -405,7 +405,15 @@ export class AppComponent {
 
   onSettingsEscape(): void {
     if (this.importPreview()) { this.cancelImport(); return; }
+    this.closeSettings();
+  }
+
+  /** Saves the key as it is typed or pasted, so closing Settings any way keeps it. */
+  onKeyInput(value: string): void { this.apiKeyDraft.set(value); saveApiKey(value.trim()); }
+  /** Closing Settings after entering a key retries the load, the same as tapping Connect. */
+  closeSettings(): void {
     this.settingsOpen.set(false);
+    if (!this.onDevice && this.apiKeyDraft().trim() && (this.needsKey() || this.error())) this.refresh();
   }
 
   saveServerKey(): void {

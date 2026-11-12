@@ -351,18 +351,18 @@
 }
 
 @if (settingsOpen()) {
-  <div class="modal-backdrop" (click)="settingsOpen.set(false)">
+  <div class="modal-backdrop" (click)="closeSettings()">
     <section class="entry-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" (click)="$event.stopPropagation()" (keydown.escape)="onSettingsEscape()">
       <div class="modal-head">
         <span class="modal-icon modal-income"><i-lucide [img]="icons.Settings2"></i-lucide></span>
         <div><h2 id="settings-title">Settings</h2><p class="modal-subtitle">{{ onDevice ? 'Saved on this device' : 'Entries sync to your server' }}</p></div>
-        <button class="icon-button modal-close" aria-label="Close" (click)="settingsOpen.set(false)"><i-lucide [img]="icons.X"></i-lucide></button>
+        <button class="icon-button modal-close" aria-label="Close" (click)="closeSettings()"><i-lucide [img]="icons.X"></i-lucide></button>
       </div>
       @if (!onDevice) {
         <label class="field-label" for="server-key">Server key <span>(once per device)</span></label>
         <div class="key-row">
           <input class="form-input" id="server-key" [type]="showKey() ? 'text' : 'password'" autocomplete="off" autocapitalize="off" spellcheck="false"
-                 placeholder="Paste your server key" [ngModel]="apiKeyDraft()" (ngModelChange)="apiKeyDraft.set($event)" (keydown.enter)="saveServerKey()">
+                 placeholder="Paste your server key" [ngModel]="apiKeyDraft()" (ngModelChange)="onKeyInput($event)" (keydown.enter)="saveServerKey()">
           <button type="button" class="secondary-button" (click)="showKey.set(!showKey())" [attr.aria-pressed]="showKey()">{{ showKey() ? 'Hide' : 'Show' }}</button>
           <button type="button" class="primary-button" (click)="saveServerKey()" [disabled]="!apiKeyDraft().trim()">Connect</button>
         </div>
@@ -383,7 +383,7 @@
       <span class="field-label">Backup</span>
       <label class="secondary-button import-button" for="import-csv"><i-lucide [img]="icons.Upload"></i-lucide> Import CSV</label>
       <input id="import-csv" class="sr-only" type="file" accept=".csv,text/csv" (change)="onImportFile($event)">
-      <div class="modal-actions"><button class="primary-button" (click)="settingsOpen.set(false)">Done <i-lucide [img]="icons.Check"></i-lucide></button></div>
+      <div class="modal-actions"><button class="primary-button" (click)="closeSettings()">Done <i-lucide [img]="icons.Check"></i-lucide></button></div>
     </section>
   </div>
 }
