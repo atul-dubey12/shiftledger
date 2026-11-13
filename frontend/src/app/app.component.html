@@ -43,16 +43,31 @@
 
     <div class="content-wrap">
       @if (!onDevice) {
-        <div class="connection-banner" role="status" aria-live="polite">
-          {{ sync.offline() ? 'Offline' : sync.syncing() ? 'Syncing…' : sync.pending().length ? 'Saved on this device' : cachedAt() || loading() || error() ? 'Waiting for server' : 'Synced' }}
-          @if (sync.pending().length) { · {{ sync.pending().length }} entries pending. Keep this browser’s data until synced. }
-          @if (sync.rejectedIds().length) { <span>{{ sync.rejectedIds().length }} rejected entries need editing or deleting below.</span> }
-          @if (sync.failure()) { <span>{{ sync.failure() }}</span> }
-          @if (sync.pending().length || error()) { <button class="text-button" [disabled]="sync.syncing() || sync.offline()" (click)="sync.retry(); refresh()">Retry sync</button> }
+        <div class="sync-summary" role="status" aria-live="polite">
+          <span class="sync-chip" [class.sync-chip-warning]="sync.offline() || sync.pending().length || error() || needsKey()" [class.sync-chip-busy]="sync.syncing() || loading() || slowNetwork()">
+            <i-lucide [img]="sync.offline() || sync.pending().length || error() || needsKey() ? icons.Smartphone : sync.syncing() || cachedAt() || loading() || slowNetwork() ? icons.Timer : icons.Check"></i-lucide>
+            {{ needsKey() ? 'Connect your account' : sync.offline() ? 'Offline' : sync.syncing() ? 'Syncing' : sync.pending().length ? sync.pending().length + ' pending' : cachedAt() || loading() || error() || slowNetwork() ? 'Connecting' : 'Synced' }}
+          </span>
         </div>
+        @if (sync.offline() || sync.pending().length || sync.failure() || cachedAt() || slowNetwork() || error()) {
+          <div class="sync-notice" [class.sync-notice-error]="sync.rejectedIds().length || error()" role="status" aria-live="polite">
+            <span class="sync-notice-icon"><i-lucide [img]="sync.offline() || sync.pending().length ? icons.Smartphone : icons.Timer"></i-lucide></span>
+            <div class="sync-notice-copy">
+              <strong>{{ sync.rejectedIds().length ? 'Some entries need your attention' : sync.pending().length ? sync.pending().length + (sync.pending().length === 1 ? ' entry saved on this device' : ' entries saved on this device') : sync.offline() ? 'You’re offline' : error() ? 'Couldn’t refresh your entries' : 'Getting the latest entries' }}</strong>
+              @if (sync.rejectedIds().length) { <p>Edit or delete the entries marked “Needs correction” below.</p> }
+              @else if (sync.pending().length) { <p>{{ sync.offline() ? 'We’ll sync when you’re back online.' : 'Your entries will sync when the server is ready.' }} Keep this browser’s data until then.</p> }
+              @else if (sync.offline()) { <p>You can still add entries. They’ll sync when you reconnect.</p> }
+              @else if (error()) { <p>{{ error() }}</p> }
+              @else if (slowNetwork()) { <p>The server is waking up. This can take about a minute.</p> }
+              @if (sync.failure()) { <p>{{ sync.failure() }}</p> }
+              @if (cachedAt(); as savedAt) { <small>Showing saved data · {{ savedAt | date:'d MMM, h:mm a' }}</small> }
+            </div>
+            @if (sync.pending().length || error() || sync.failure()) {
+              <button class="sync-retry" [disabled]="sync.syncing() || sync.offline()" (click)="sync.retry(); refresh()">{{ sync.syncing() ? 'Syncing…' : 'Retry sync' }}</button>
+            }
+          </div>
+        }
       }
-      @if (cachedAt(); as savedAt) { <div class="connection-banner" role="status">Showing saved data from {{ savedAt | date:'medium' }}. {{ error() ? 'Updates are unavailable. Retry to sync.' : 'Syncing with the server…' }}</div> }
-      @if (slowNetwork()) { <div class="connection-banner wake-banner" role="status"><i-lucide [img]="icons.Timer"></i-lucide>Waking up the server… first load can take up to a minute.</div> }
       @if (needsKey()) { <div class="connection-banner" role="alert"><i-lucide [img]="icons.ShieldCheck"></i-lucide>Enter your server key to load your entries. <button class="text-button" (click)="settingsOpen.set(true)">Open Settings</button></div> }
       @if (deviceEntries(); as local) {
         @if (!needsKey() && !loading()) {
@@ -66,7 +81,6 @@
           </div>
         }
       }
-      @if (error()) { <div class="connection-banner" role="alert"><i-lucide [img]="icons.CircleDollarSign"></i-lucide>{{ error() }} <button class="text-button" (click)="refresh()">Retry</button></div> }
 
       <section class="welcome-row">
         <div>
@@ -320,10 +334,11 @@
       <span class="entry-text">
         <strong>{{ entryTitle(entry) }}</strong>
         <small>
-          {{ entrySubtitle(entry) }} @if (entry.id < 0) { <span> · {{ sync.rejectedIds().includes(entry.id) ? 'Needs correction — edit or delete' : 'Pending sync' }}</span> }
+          <span class="entry-description">{{ entrySubtitle(entry) }}</span>
           @if (entry.codAmount) { <span class="pill-cod">COD {{ entry.codAmount | currency:'INR':'symbol':'1.0-0' }}</span> }
           @if (entry.paidFrom === 'COD_CASH') { <span class="pill-cod">Paid from COD</span> }
         </small>
+        @if (entry.id < 0) { <span class="entry-sync-label" [class.entry-sync-rejected]="sync.rejectedIds().includes(entry.id)">{{ sync.rejectedIds().includes(entry.id) ? 'Needs correction' : 'Pending sync' }}</span> }
       </span>
       @if (entry.type === 'COD_SETTLEMENT') {
         <strong class="entry-amount amount-neutral">{{ entry.amount | currency:'INR':'symbol':'1.0-0' }}</strong>
