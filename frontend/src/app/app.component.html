@@ -42,6 +42,7 @@
     </header>
 
     <div class="content-wrap">
+      @if (cachedAt(); as savedAt) { <div class="connection-banner" role="status">Showing saved data from {{ savedAt | date:'medium' }}. {{ error() ? 'Updates are unavailable. Retry to sync.' : 'Syncing with the server…' }}</div> }
       @if (slowNetwork()) { <div class="connection-banner wake-banner" role="status"><i-lucide [img]="icons.Timer"></i-lucide>Waking up the server… first load can take up to a minute.</div> }
       @if (needsKey()) { <div class="connection-banner" role="alert"><i-lucide [img]="icons.ShieldCheck"></i-lucide>Enter your server key to load your entries. <button class="text-button" (click)="settingsOpen.set(true)">Open Settings</button></div> }
       @if (deviceEntries(); as local) {

@@ -62,6 +62,7 @@ export class AppComponent {
   private readonly service = inject(EntryService);
 
   readonly onDevice = this.service.onDevice;
+  readonly cachedAt = this.service.cachedAt;
   readonly slowNetwork = inject(NetworkStatus).slow;
   /** True when the server rejected us for a missing or wrong key. */
   readonly needsKey = signal(false);
@@ -245,6 +246,7 @@ export class AppComponent {
         this.loading.set(false);
         if (err instanceof HttpErrorResponse && err.status === 401) {
           this.error.set('');
+          this.entries.set([]);
           this.needsKey.set(true);
           this.settingsOpen.set(true);
           setTimeout(() => document.getElementById('server-key')?.focus());
@@ -409,7 +411,7 @@ export class AppComponent {
   }
 
   /** Saves the key as it is typed or pasted, so closing Settings any way keeps it. */
-  onKeyInput(value: string): void { this.apiKeyDraft.set(value); saveApiKey(value.trim()); }
+  onKeyInput(value: string): void { this.entries.set([]); this.service.cachedAt.set(null); this.apiKeyDraft.set(value); saveApiKey(value.trim()); }
   /** Closing Settings after entering a key retries the load, the same as tapping Connect. */
   closeSettings(): void {
     this.settingsOpen.set(false);
@@ -424,6 +426,7 @@ export class AppComponent {
     this.loading.set(true);
     this.service.list().subscribe({
       next: (entries) => {
+        if (this.cachedAt()) { this.entries.set(entries); this.loading.set(false); return; }
         this.entries.set(entries); this.loading.set(false); this.error.set(''); this.needsKey.set(false);
         this.settingsOpen.set(false);
         this.showToast({ message: 'Connected — your entries are synced' });
@@ -431,6 +434,7 @@ export class AppComponent {
       error: (err: HttpErrorResponse) => {
         this.loading.set(false);
         this.needsKey.set(err instanceof HttpErrorResponse && err.status === 401);
+        if (this.needsKey()) this.entries.set([]);
         if (!this.needsKey()) this.showToast({ message: this.service.errorMessage(err, 'Could not reach the server.') });
       },
     });

@@ -1,9 +1,10 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Observable, map } from 'rxjs';
+import { Observable, map, from, switchMap, concat, of, tap, catchError, throwError } from 'rxjs';
 import { EntryDraft, LedgerEntry } from './entry.model';
 import { DeviceStore } from './device-store';
 import { isoDate } from './ledger';
+import { readApiKey } from './api.interceptor';
 import { STORAGE } from './storage.config';
 
 export interface ImportResult {
@@ -22,7 +23,44 @@ export class EntryService {
   /** Fire-and-forget request that wakes a sleeping server while the rest of the app loads. */
   wake(): void { if (!this.device) this.http.get(`${STORAGE.apiBaseUrl}/api/health`).subscribe({ error: () => {} }); }
 
-  list(): Observable<LedgerEntry[]> { return this.device?.list() ?? this.http.get<LedgerEntry[]>(this.api); }
+  readonly cachedAt = signal<string | null>(null);
+  private readonly restoredScopes = new Set<string>();
+
+  /** Scope snapshots to the server and credential without storing another copy of the key. */
+  private async cacheKey(): Promise<string | null> {
+    try {
+      const bytes = new TextEncoder().encode(`${this.api}\n${readApiKey()}`);
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      return 'shiftledger.snapshot.v1.' + Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+    } catch { return null; }
+  }
+
+  list(): Observable<LedgerEntry[]> {
+    if (this.device) return this.device.list();
+    return from(this.cacheKey()).pipe(switchMap(key => {
+      let snapshot: { entries: LedgerEntry[]; savedAt: string } | null = null;
+      try {
+        const value = key && !this.restoredScopes.has(key) ? JSON.parse(localStorage.getItem(key) ?? 'null') : null;
+        if (value && Array.isArray(value.entries) && typeof value.savedAt === 'string'
+            && Number.isFinite(Date.parse(value.savedAt))
+            && value.entries.every((e: LedgerEntry) => e && Number.isFinite(e.id) && Number.isFinite(e.amount)
+              && typeof e.date === 'string' && ['INCOME', 'EXPENSE', 'COD_SETTLEMENT'].includes(e.type))) snapshot = value;
+      } catch { /* A corrupt or unavailable cache must never block the API. */ }
+      if (key) this.restoredScopes.add(key);
+      if (snapshot) this.cachedAt.set(snapshot.savedAt);
+      const fresh = this.http.get<LedgerEntry[]>(this.api).pipe(tap(entries => {
+        this.cachedAt.set(null);
+        try { if (key) localStorage.setItem(key, JSON.stringify({ entries, savedAt: new Date().toISOString() })); } catch { /* Storage full or disabled. */ }
+      }), catchError(err => {
+        if (err instanceof HttpErrorResponse && err.status === 401) {
+          this.cachedAt.set(null);
+          try { if (key) localStorage.removeItem(key); } catch { /* Storage disabled. */ }
+        }
+        return throwError(() => err);
+      }));
+      return snapshot ? concat(of(snapshot.entries), fresh) : fresh;
+    }));
+  }
   create(entry: EntryDraft): Observable<LedgerEntry> { return this.device?.create(entry) ?? this.http.post<LedgerEntry>(this.api, entry); }
   update(id: number, entry: EntryDraft): Observable<LedgerEntry> { return this.device?.update(id, entry) ?? this.http.put<LedgerEntry>(`${this.api}/${id}`, entry); }
   delete(id: number): Observable<void> { return this.device?.delete(id) ?? this.http.delete<void>(`${this.api}/${id}`); }
