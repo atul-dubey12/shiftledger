@@ -1,10 +1,11 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Observable, map, from, switchMap, concat, of, tap, catchError, throwError } from 'rxjs';
+import { Observable, map, from, switchMap, concat, of, tap, catchError, throwError, filter } from 'rxjs';
 import { EntryDraft, LedgerEntry } from './entry.model';
 import { DeviceStore } from './device-store';
 import { isoDate } from './ledger';
 import { readApiKey } from './api.interceptor';
+import { OfflineQueue } from './offline-queue';
 import { STORAGE } from './storage.config';
 
 export interface ImportResult {
@@ -15,6 +16,7 @@ export interface ImportResult {
 
 @Injectable({ providedIn: 'root' })
 export class EntryService {
+  readonly queue = inject(OfflineQueue);
   private readonly http = inject(HttpClient);
   private readonly api = `${STORAGE.apiBaseUrl}/api/entries`;
   private readonly device = STORAGE.mode === 'device' ? new DeviceStore() : null;
@@ -24,7 +26,6 @@ export class EntryService {
   wake(): void { if (!this.device) this.http.get(`${STORAGE.apiBaseUrl}/api/health`).subscribe({ error: () => {} }); }
 
   readonly cachedAt = signal<string | null>(null);
-  private readonly restoredScopes = new Set<string>();
 
   /** Scope snapshots to the server and credential without storing another copy of the key. */
   private async cacheKey(): Promise<string | null> {
@@ -37,18 +38,20 @@ export class EntryService {
 
   list(): Observable<LedgerEntry[]> {
     if (this.device) return this.device.list();
-    return from(this.cacheKey()).pipe(switchMap(key => {
+    const credential = readApiKey();
+    return from(this.queue.restore().then(() => this.cacheKey())).pipe(switchMap(key => {
       let snapshot: { entries: LedgerEntry[]; savedAt: string } | null = null;
       try {
-        const value = key && !this.restoredScopes.has(key) ? JSON.parse(localStorage.getItem(key) ?? 'null') : null;
+        const value = key ? JSON.parse(localStorage.getItem(key) ?? 'null') : null;
         if (value && Array.isArray(value.entries) && typeof value.savedAt === 'string'
             && Number.isFinite(Date.parse(value.savedAt))
             && value.entries.every((e: LedgerEntry) => e && Number.isFinite(e.id) && Number.isFinite(e.amount)
               && typeof e.date === 'string' && ['INCOME', 'EXPENSE', 'COD_SETTLEMENT'].includes(e.type))) snapshot = value;
       } catch { /* A corrupt or unavailable cache must never block the API. */ }
-      if (key) this.restoredScopes.add(key);
       if (snapshot) this.cachedAt.set(snapshot.savedAt);
-      const fresh = this.http.get<LedgerEntry[]>(this.api).pipe(tap(entries => {
+      if (this.queue.pending().length) return of([...(snapshot?.entries ?? []), ...this.queue.pending()]);
+      const fresh = this.http.get<LedgerEntry[]>(this.api).pipe(map(entries => this.queue.pending().length ? [...(snapshot?.entries ?? []), ...this.queue.pending()] : entries), tap(entries => {
+        if (this.queue.pending().length) return;
         this.cachedAt.set(null);
         try { if (key) localStorage.setItem(key, JSON.stringify({ entries, savedAt: new Date().toISOString() })); } catch { /* Storage full or disabled. */ }
       }), catchError(err => {
@@ -59,11 +62,11 @@ export class EntryService {
         return throwError(() => err);
       }));
       return snapshot ? concat(of(snapshot.entries), fresh) : fresh;
-    }));
+    }), filter(() => credential === readApiKey()));
   }
-  create(entry: EntryDraft): Observable<LedgerEntry> { return this.device?.create(entry) ?? this.http.post<LedgerEntry>(this.api, entry); }
-  update(id: number, entry: EntryDraft): Observable<LedgerEntry> { return this.device?.update(id, entry) ?? this.http.put<LedgerEntry>(`${this.api}/${id}`, entry); }
-  delete(id: number): Observable<void> { return this.device?.delete(id) ?? this.http.delete<void>(`${this.api}/${id}`); }
+  create(entry: EntryDraft): Observable<LedgerEntry> { return this.device?.create(entry) ?? from(this.queue.enqueue(entry)); }
+  update(id: number, entry: EntryDraft): Observable<LedgerEntry> { if (id < 0) return from(this.queue.replaceRejected(id, entry)); return this.device?.update(id, entry) ?? this.http.put<LedgerEntry>(`${this.api}/${id}`, entry); }
+  delete(id: number): Observable<void> { if (id < 0) return from(this.queue.removeRejected(id)); return this.device?.delete(id) ?? this.http.delete<void>(`${this.api}/${id}`); }
 
   exportCsv(scope: 'period' | 'all', from = '', to = ''): Observable<void> | void {
     if (scope === 'all') {
@@ -101,7 +104,8 @@ export class EntryService {
   }
 
   /** Pulls the API's validation message out of a failed request, if it sent one. */
-  errorMessage(err: HttpErrorResponse, fallback: string): string {
+  errorMessage(err: unknown, fallback: string): string {
+    if (err instanceof Error && !(err instanceof HttpErrorResponse)) return err.message;
     if (!(err instanceof HttpErrorResponse) || err.status === 0) return 'No connection — check your signal and try again.';
     if (err.status === 401) return 'Server key missing or wrong — check Settings.';
     return typeof err.error?.message === 'string' && err.status === 400 ? err.error.message : fallback;

@@ -1,0 +1,55 @@
+import '@angular/compiler';
+import { Injector, runInInjectionContext } from '@angular/core';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { of, throwError } from 'rxjs';
+import assert from 'node:assert/strict';
+import { webcrypto } from 'node:crypto';
+import { OfflineQueue } from '../src/app/offline-queue';
+const values = new Map<string, string>();
+Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
+Object.defineProperty(globalThis, 'navigator', { value: { onLine: false }, configurable: true });
+Object.assign(globalThis, {
+  window: { addEventListener() {} },
+  localStorage: { get length() { return values.size; }, key(i: number) { return [...values.keys()][i]; }, getItem(k: string) { return values.get(k) ?? null; }, setItem(k: string, v: string) { values.set(k, v); }, removeItem(k: string) { values.delete(k); } },
+  setInterval() { return 0; }, setTimeout() { return 0; }
+});
+let fail = true;
+let reject = false;
+const urls: string[] = [];
+const http = { put(url: string, draft: object) { urls.push(url); return reject ? throwError(() => new HttpErrorResponse({ status: 400, error: { message: 'Invalid amount' } })) : fail ? throwError(() => new HttpErrorResponse({ status: 0 })) : of({ ...draft, id: 123 }); } };
+const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: http }] });
+const make = () => runInInjectionContext(injector, () => new OfflineQueue());
+const first = make();
+const draft = { type: 'EXPENSE' as const, category: 'FUEL' as const, amount: 150, date: '2026-11-13', note: null, orderCount: null, hoursWorked: null, distanceKm: null };
+const saved = await first.enqueue(draft);
+assert.ok(saved.id < 0);
+assert.equal(first.pending().length, 1);
+assert.equal(urls.length, 0, 'offline save makes no request');
+const reloaded = make();
+await reloaded.restore();
+assert.equal(reloaded.pending().length, 1, 'queue survives reload');
+(navigator as any).onLine = true;
+await reloaded.retry();
+assert.equal(reloaded.pending().length, 1, 'lost response retains durable entry');
+fail = false;
+await reloaded.retry();
+assert.equal(reloaded.pending().length, 0);
+assert.equal(urls[0], urls[1], 'retry preserves idempotency token');
+assert.ok([...values.keys()].some(k => k.startsWith('shiftledger.snapshot.')), 'acknowledgement updates cache before removing queue');
+(navigator as any).onLine = false;
+await first.enqueue(draft);
+localStorage.setItem('shiftledger.apiKey', 'different-account');
+await reloaded.restore();
+assert.equal(reloaded.pending().length, 0, 'credentials isolate pending entries');
+localStorage.removeItem('shiftledger.apiKey');
+await reloaded.restore();
+reject = true;
+(navigator as any).onLine = true;
+await reloaded.retry();
+assert.equal(reloaded.rejectedIds().length, 1, 'rejected drafts remain recoverable');
+await reloaded.removeRejected(reloaded.rejectedIds()[0]);
+assert.equal(reloaded.pending().length, 0);
+(navigator as any).onLine = false;
+localStorage.setItem = () => { throw new Error('Quota exceeded'); };
+await assert.rejects(() => reloaded.enqueue(draft), /Could not save on this device/);
+console.log('Passed: offline save, reload recovery, lost response, stable retry token, acknowledgement cache, credential isolation, storage failure.');

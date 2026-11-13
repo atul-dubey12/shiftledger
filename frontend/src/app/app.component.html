@@ -42,6 +42,15 @@
     </header>
 
     <div class="content-wrap">
+      @if (!onDevice) {
+        <div class="connection-banner" role="status" aria-live="polite">
+          {{ sync.offline() ? 'Offline' : sync.syncing() ? 'Syncing…' : sync.pending().length ? 'Saved on this device' : cachedAt() || loading() || error() ? 'Waiting for server' : 'Synced' }}
+          @if (sync.pending().length) { · {{ sync.pending().length }} entries pending. Keep this browser’s data until synced. }
+          @if (sync.rejectedIds().length) { <span>{{ sync.rejectedIds().length }} rejected entries need editing or deleting below.</span> }
+          @if (sync.failure()) { <span>{{ sync.failure() }}</span> }
+          @if (sync.pending().length || error()) { <button class="text-button" [disabled]="sync.syncing() || sync.offline()" (click)="sync.retry(); refresh()">Retry sync</button> }
+        </div>
+      }
       @if (cachedAt(); as savedAt) { <div class="connection-banner" role="status">Showing saved data from {{ savedAt | date:'medium' }}. {{ error() ? 'Updates are unavailable. Retry to sync.' : 'Syncing with the server…' }}</div> }
       @if (slowNetwork()) { <div class="connection-banner wake-banner" role="status"><i-lucide [img]="icons.Timer"></i-lucide>Waking up the server… first load can take up to a minute.</div> }
       @if (needsKey()) { <div class="connection-banner" role="alert"><i-lucide [img]="icons.ShieldCheck"></i-lucide>Enter your server key to load your entries. <button class="text-button" (click)="settingsOpen.set(true)">Open Settings</button></div> }
@@ -306,12 +315,12 @@
 
 <ng-template #entryRow let-entry>
   <div class="entry-row">
-    <button class="entry-main" (click)="openForm(entry.type, entry)" [attr.aria-label]="'Edit ' + entryTitle(entry)">
+    <button class="entry-main" [disabled]="entry.id < 0 && !sync.rejectedIds().includes(entry.id)" (click)="openForm(entry.type, entry)" [attr.aria-label]="'Edit ' + entryTitle(entry)">
       <span class="entry-icon" [class.entry-income]="entry.type === 'INCOME'" [class.entry-expense]="entry.type === 'EXPENSE'" [class.entry-cod]="entry.type === 'COD_SETTLEMENT'"><i-lucide [img]="entryIcon(entry)"></i-lucide></span>
       <span class="entry-text">
         <strong>{{ entryTitle(entry) }}</strong>
         <small>
-          {{ entrySubtitle(entry) }}
+          {{ entrySubtitle(entry) }} @if (entry.id < 0) { <span> · {{ sync.rejectedIds().includes(entry.id) ? 'Needs correction — edit or delete' : 'Pending sync' }}</span> }
           @if (entry.codAmount) { <span class="pill-cod">COD {{ entry.codAmount | currency:'INR':'symbol':'1.0-0' }}</span> }
           @if (entry.paidFrom === 'COD_CASH') { <span class="pill-cod">Paid from COD</span> }
         </small>
@@ -322,8 +331,8 @@
         <strong class="entry-amount" [class.amount-income]="entry.type === 'INCOME'" [class.amount-expense]="entry.type === 'EXPENSE'">{{ entry.type === 'INCOME' ? '+' : '−' }}{{ entry.amount | currency:'INR':'symbol':'1.0-0' }}</strong>
       }
     </button>
-    <button class="row-action" aria-label="Edit entry" (click)="openForm(entry.type, entry)"><i-lucide [img]="icons.Pencil"></i-lucide></button>
-    <button class="row-action row-delete" aria-label="Delete entry" (click)="removeEntry(entry)"><i-lucide [img]="icons.Trash2"></i-lucide></button>
+    <button class="row-action" aria-label="Edit entry" [disabled]="entry.id < 0 && !sync.rejectedIds().includes(entry.id)" (click)="openForm(entry.type, entry)"><i-lucide [img]="icons.Pencil"></i-lucide></button>
+    <button class="row-action row-delete" aria-label="Delete entry" [disabled]="entry.id < 0 && !sync.rejectedIds().includes(entry.id)" (click)="removeEntry(entry)"><i-lucide [img]="icons.Trash2"></i-lucide></button>
   </div>
 </ng-template>
 

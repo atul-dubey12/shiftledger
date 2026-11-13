@@ -61,6 +61,7 @@ export class AppComponent {
   readonly periods: Period[] = ['day', 'week', 'month'];
   private readonly service = inject(EntryService);
 
+  readonly sync = this.service.queue;
   readonly onDevice = this.service.onDevice;
   readonly cachedAt = this.service.cachedAt;
   readonly slowNetwork = inject(NetworkStatus).slow;
@@ -231,6 +232,7 @@ export class AppComponent {
   });
 
   constructor() {
+    this.sync.changed.subscribe(() => this.refresh());
     this.service.wake();
     this.refresh();
     effect(() => {
@@ -285,7 +287,7 @@ export class AppComponent {
     this.refresh();
   }
   private undoCreate(entry: LedgerEntry): void {
-    this.service.delete(entry.id).subscribe({ next: () => { this.showToast({ message: 'Removed' }); this.refresh(); } });
+    this.service.delete(entry.id).subscribe({ next: () => { this.showToast({ message: 'Removed' }); this.refresh(); }, error: (err) => this.showToast({ message: this.service.errorMessage(err, 'Could not undo this entry.') }) });
   }
   onSaved(event: { entry: LedgerEntry; addAnother: boolean; edited: boolean }): void {
     if (!event.addAnother) this.form.set(null);
@@ -411,7 +413,7 @@ export class AppComponent {
   }
 
   /** Saves the key as it is typed or pasted, so closing Settings any way keeps it. */
-  onKeyInput(value: string): void { this.entries.set([]); this.service.cachedAt.set(null); this.apiKeyDraft.set(value); saveApiKey(value.trim()); }
+  onKeyInput(value: string): void { this.entries.set([]); this.service.cachedAt.set(null); this.sync.pending.set([]); this.apiKeyDraft.set(value); saveApiKey(value.trim()); }
   /** Closing Settings after entering a key retries the load, the same as tapping Connect. */
   closeSettings(): void {
     this.settingsOpen.set(false);
@@ -426,7 +428,7 @@ export class AppComponent {
     this.loading.set(true);
     this.service.list().subscribe({
       next: (entries) => {
-        if (this.cachedAt()) { this.entries.set(entries); this.loading.set(false); return; }
+        if (this.cachedAt() || this.sync.pending().length) { this.entries.set(entries); this.loading.set(false); return; }
         this.entries.set(entries); this.loading.set(false); this.error.set(''); this.needsKey.set(false);
         this.settingsOpen.set(false);
         this.showToast({ message: 'Connected — your entries are synced' });
