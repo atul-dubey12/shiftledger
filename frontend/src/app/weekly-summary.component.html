@@ -1,0 +1,37 @@
+<section class="weekly-card" aria-labelledby="weekly-heading">
+  <div class="weekly-head">
+    <div><span class="today-tag">WEEKLY WRAP-UP</span><h2 id="weekly-heading">Your week, settled</h2><p>{{ summary().start | date:'d MMM y' }} – {{ summary().end | date:'d MMM y' }} · Monday payout</p></div>
+    @if (collapsed()) { <button class="secondary-button" (click)="collapsed.set(false)">View summary</button> }
+    @else { <button class="text-button" (click)="dismiss()">Dismiss</button> }
+  </div>
+  @if (!collapsed()) {
+    <div class="weekly-actions"><button class="secondary-button" [disabled]="!ready() || saving()" (click)="move(-1)">← Previous week</button><button class="secondary-button" [disabled]="!ready() || saving() || offset() === 0" (click)="move(1)">Next week →</button></div>
+    @if (planning.loading()) { <p role="status">Loading payouts and syncing browser-only records…</p> }
+    @if (planning.error()) { <p role="alert">{{ planning.error() }}</p><button class="secondary-button" [disabled]="planning.loading()" (click)="refreshPayout()">Retry sync</button> }
+    @if (incomplete()) { <p class="weekly-warning">This summary uses saved or pending entries. Sync before treating it as final.</p> }
+    <div class="weekly-stats">
+      <div><small>Recorded earnings</small><strong>{{ summary().totals.income | currency:'INR' }}</strong></div>
+      <div><small>Riding expenses</small><strong>{{ summary().totals.expenses | currency:'INR' }}</strong></div>
+      <div><small>Net earnings after expenses</small><strong>{{ summary().totals.net | currency:'INR' }}</strong></div>
+      <div><small>Actual bank payout</small><strong>{{ payout() ? (payout()!.amount | currency:'INR') : 'Not entered' }}</strong></div>
+    </div>
+    <p>{{ summary().totals.shifts }} days worked · {{ summary().totals.orders }} orders · {{ summary().totals.km }} km</p>
+    @if (!summary().items.length) { <p>No entries recorded for this week.</p> }
+    <form class="weekly-payout" (ngSubmit)="save()">
+      <label>Bank payout received (₹)<input name="weeklyAmount" type="number" min="0" max="999999999" step="0.01" required [(ngModel)]="amount" (ngModelChange)="dirty = true" placeholder="Enter credited amount"></label>
+      <label>Received on<input name="weeklyDate" type="date" required [min]="summary().payday" [(ngModel)]="date" (ngModelChange)="dirty = true"></label>
+      <button class="primary-button" type="submit" [disabled]="!ready() || saving()">{{ saving() ? 'Saving…' : 'Save payout' }}</button>
+    </form>
+    <button class="text-button" [disabled]="planning.loading() || saving()" (click)="refreshPayout()">Refresh payouts</button>
+    <p class="weekly-note">{{ planning.onDevice ? 'Payout is saved on this device.' : 'Payout syncs to your account after a successful save.' }} It is not added to earnings. Net earnings use recorded earnings minus expenses; bank credits may differ due to COD deductions or adjustments.</p>
+    @if (payout(); as paid) { <p>Received {{ paid.date | date:'d MMM y' }} · Difference from recorded earnings: {{ paid.amount - summary().totals.income | currency:'INR' }}</p> }
+    <details><summary>All riding expenses ({{ summary().expenses.length }})</summary>
+      <div class="weekly-categories">@for (c of summary().categories; track c.key) { <span>{{ c.label }}: {{ c.amount | currency:'INR' }}</span> }</div>
+      @for (e of summary().expenses; track e.id) {
+        <div class="weekly-expense"><div><strong>{{ category(e.category).label }}</strong><small>{{ e.date | date:'EEE, d MMM' }} · {{ e.paidFrom === 'COD_CASH' ? 'COD cash' : 'Own money' }}</small>@if (e.note) { <p>{{ e.note }}</p> }</div><strong>{{ e.amount | currency:'INR' }}</strong></div>
+      } @empty { <p>No riding expenses recorded.</p> }
+    </details>
+    <div class="weekly-actions"><button class="secondary-button" [disabled]="busy() || !ready()" (click)="download()">{{ busy() ? 'Preparing PDF…' : 'Download weekly PDF' }}</button><small>PDF includes the saved payout and all weekly entries.</small></div>
+    @if (message()) { <p role="status">{{ message() }}</p> }
+  }
+</section>

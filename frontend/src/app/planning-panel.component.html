@@ -1,0 +1,62 @@
+<section id="maintenance" class="weekly-card planning-card" aria-labelledby="maintenance-heading">
+  <div class="weekly-head"><div><span class="today-tag">LOOK AFTER YOUR BIKE</span><h2 id="maintenance-heading">Bike maintenance</h2><p>Service, oil changes, insurance and upcoming costs.</p></div><button class="primary-button" [disabled]="!planning.ready() || busy()" (click)="newTask()">Add reminder</button></div>
+  @if (planning.loading()) { <p role="status">Loading account records…</p> }
+  @if (planning.error()) { <p role="alert">{{ planning.error() }}</p> }
+  <div class="weekly-actions"><button class="text-button" [disabled]="planning.loading() || busy()" (click)="planning.refresh()">Refresh account data</button><small>{{ planning.onDevice ? 'Saved on this device' : planning.stale() ? 'Offline or not synced' : 'Saved to your account' }}</small></div>
+  <form class="weekly-payout" (ngSubmit)="saveOdometer()"><label>Current bike odometer (km)<input type="number" name="odometer" min="0" max="9999999" step="1" required [ngModel]="odometer()" (ngModelChange)="odometer.set($event)"></label><button class="secondary-button" [disabled]="!planning.ready() || busy()" type="submit">Save reading</button></form>
+  <p class="weekly-note">Enter your bike's total odometer reading, including personal trips. Due soon means within 30 days or 500 km. Either threshold can make a reminder due.</p>
+  <p>Planned costs: <strong>{{ upcomingCost() | currency:'INR' }}</strong>@if (unpriced()) { <span> · {{ unpriced() }} reminders without an estimate</span> }</p>
+  @if (form(); as t) {
+    <form class="maintenance-form" (ngSubmit)="saveTask()">
+      <h3>{{ t.version ? 'Edit maintenance' : 'New maintenance reminder' }}</h3>
+      <div class="planning-fields">
+        <label>Title<input name="title" required maxlength="120" [(ngModel)]="t.title" placeholder="e.g. Engine oil change"></label>
+        <label>Type<select name="kind" [(ngModel)]="t.kind"><option value="SERVICE">Service</option><option value="OIL">Oil change</option><option value="INSURANCE">Insurance</option><option value="OTHER">Other</option></select></label>
+        <label>Due date<input name="dueDate" type="date" [(ngModel)]="t.dueDate"></label>
+        <label>Due at odometer (km)<input name="dueKm" type="number" min="0" max="9999999" step="1" [(ngModel)]="t.dueKm"></label>
+        <label>Estimated cost (₹)<input name="estimate" type="number" min="0" max="999999999" step="0.01" [(ngModel)]="t.estimatedCost"></label>
+        <label>Completed on (optional)<input name="completed" type="date" [max]="today()" [(ngModel)]="t.completedOn"></label>
+        <label>Actual cost (₹, when completed)<input name="actual" type="number" min="0" max="999999999" step="0.01" [(ngModel)]="t.actualCost"></label>
+      </div>
+      <p class="weekly-note">Set a date, kilometres, or both. Costs here are planning records; add the payment as a work expense separately to include it in your ledger.</p>
+      <div class="weekly-actions"><button class="primary-button" type="submit" [disabled]="busy() || !planning.ready()">{{ busy() ? 'Saving…' : 'Save maintenance' }}</button><button class="secondary-button" type="button" [disabled]="busy()" (click)="form.set(null)">Cancel</button></div>
+    </form>
+  }
+  <div class="maintenance-list">
+    @for (t of ordered(); track t.id) {
+      <article class="maintenance-item">
+        <div><strong>{{ t.title }}</strong><span class="maintenance-status" [class.weekly-warning]="status(t).urgent">{{ status(t).label }}</span>
+          <p>@if (t.dueDate) { <span>Due {{ t.dueDate | date:'d MMM y' }} </span> } @if (t.dueKm !== null) { <span> · At {{ t.dueKm }} km</span> }</p>
+          <small>@if (t.estimatedCost !== null) { Estimate {{ t.estimatedCost | currency:'INR' }} } @if (t.completedOn) { · Completed {{ t.completedOn | date:'d MMM y' }} } @if (t.actualCost !== null) { · Actual {{ t.actualCost | currency:'INR' }} }</small>
+        </div>
+        <div class="weekly-actions">
+          @if (!t.completedOn) { <button class="secondary-button" [disabled]="busy() || !planning.ready()" (click)="complete(t)">Mark completed</button> }
+          <button class="text-button" [disabled]="busy() || !planning.ready()" (click)="edit(t)">Edit</button>
+          @if (pendingDelete() === t.id) { <button class="text-button" [disabled]="busy() || !planning.ready()" (click)="remove(t)">Confirm delete</button><button class="text-button" [disabled]="busy()" (click)="pendingDelete.set(null)">Cancel</button> }
+          @else { <button class="text-button" [disabled]="busy() || !planning.ready()" (click)="pendingDelete.set(t.id)">Delete</button> }
+        </div>
+      </article>
+    } @empty { <p>No reminders yet. Add your next service or insurance renewal.</p> }
+  </div>
+  @if (message()) { <p role="status">{{ message() }}</p> }
+</section>
+
+<section id="monthly-report" class="weekly-card planning-card" aria-labelledby="monthly-heading">
+  <div class="weekly-head"><div><span class="today-tag">THE BIGGER PICTURE</span><h2 id="monthly-heading">Monthly report</h2><p>Earnings, work expenses, bank payouts and potential savings.</p></div><label>Month<input class="month-input" type="month" [ngModel]="month()" (ngModelChange)="$event && month.set($event)" [max]="today().slice(0, 7)"></label></div>
+  @if (report().inProgress) { <p>Month in progress · totals so far</p> }
+  @if (incomplete() || planning.stale()) { <p class="weekly-warning">Provisional report: sync entries and account records to confirm totals.</p> }
+  <div class="weekly-stats">
+    <div><small>Recorded earnings</small><strong>{{ report().totals.income | currency:'INR' }}</strong></div>
+    <div><small>Work expenses</small><strong>{{ report().totals.expenses | currency:'INR' }}</strong></div>
+    <div><small>Work surplus</small><strong>{{ report().totals.net | currency:'INR' }}</strong></div>
+    <div><small>Payouts received this month</small><strong>{{ report().bankTotal | currency:'INR' }}</strong></div>
+  </div>
+  <p class="weekly-note">Work surplus = recorded earnings minus work expenses. It is potential savings before personal spending and other unrecorded costs, not your bank balance. Bank payouts are grouped by the date received.</p>
+  @if (report().missingPayouts) { <p class="weekly-warning">{{ report().missingPayouts }} completed weeks with entries have no saved payout. Add them in Weekly wrap-up.</p> }
+  <details><summary>Weekly breakdown</summary><p class="weekly-note">Earnings and expenses include only days in this month. Each bank payout covers the whole work week.</p>
+    @for (w of report().weeks; track w.start) {
+      <div class="monthly-week"><strong>{{ w.start | date:'d MMM' }} – {{ w.end | date:'d MMM' }}</strong><span>Earned {{ w.totals.income | currency:'INR' }} · Spent {{ w.totals.expenses | currency:'INR' }}</span><small>{{ w.payout ? 'Whole-week payout: ' + (w.payout.amount | currency:'INR') + ' · ' + w.payout.date : 'Payout not entered' }}</small></div>
+    }
+  </details>
+  <button class="secondary-button" [disabled]="downloading() || planning.loading()" (click)="download()">{{ downloading() ? 'Preparing PDF…' : 'Download monthly PDF' }}</button>
+</section>

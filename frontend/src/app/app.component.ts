@@ -15,6 +15,8 @@ import { NetworkStatus, readApiKey, saveApiKey } from './api.interceptor';
 import { EntryFormComponent } from './entry-form.component';
 import { QuickOrderComponent } from './quick-order.component';
 import { SettleCodComponent } from './settle-cod.component';
+import { PlanningPanelComponent } from './planning-panel.component';
+import { WeeklySummaryComponent } from './weekly-summary.component';
 import { EndShiftComponent } from './end-shift.component';
 import {
   CATEGORIES, DayBar, Period, addDays, bestWeekday, categoryMeta, change, codBalance, dailySeries, inRange, isoDate, parseDate, rangeFor, shiftAnchor, startOfDay, totals
@@ -49,7 +51,7 @@ const PERIOD_NAMES: Record<Period, { current: string; previous: string }> = {
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule, CurrencyPipe, DatePipe, DecimalPipe, NgTemplateOutlet, LucideAngularModule, EntryFormComponent, QuickOrderComponent, SettleCodComponent, EndShiftComponent],
+  imports: [FormsModule, CurrencyPipe, DatePipe, DecimalPipe, NgTemplateOutlet, LucideAngularModule, EntryFormComponent, QuickOrderComponent, SettleCodComponent, EndShiftComponent, WeeklySummaryComponent, PlanningPanelComponent],
   templateUrl: './app.component.html'
 })
 export class AppComponent {

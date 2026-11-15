@@ -8,6 +8,8 @@
       <button class="nav-item" (click)="scrollTo('top')"><i-lucide [img]="icons.LayoutDashboard"></i-lucide><span>Overview</span></button>
       <button class="nav-item" (click)="scrollTo('insights')"><i-lucide [img]="icons.Lightbulb"></i-lucide><span>Goal & insights</span></button>
       <button class="nav-item" (click)="scrollTo('activity')"><i-lucide [img]="icons.Receipt"></i-lucide><span>Activity</span></button>
+      <button class="nav-item" (click)="scrollTo('maintenance')"><i-lucide [img]="icons.Wrench"></i-lucide><span>Bike maintenance</span></button>
+      <button class="nav-item" (click)="scrollTo('monthly-report')"><i-lucide [img]="icons.CalendarDays"></i-lucide><span>Monthly report</span></button>
       <button class="nav-item" (click)="settingsOpen.set(true)"><i-lucide [img]="icons.Settings2"></i-lucide><span>Settings</span></button>
     </nav>
     <div class="side-spacer"></div>
@@ -82,6 +84,11 @@
         }
       }
 
+      @if (!loading() && !needsKey() && (!error() || entries().length)) {
+        <app-weekly-summary [credential]="onDevice ? 'device' : apiKeyDraft().trim()" [entries]="entries()" [incomplete]="!!cachedAt() || !!error() || sync.pending().length > 0" />
+      }
+
+      <div class="planning-shortcuts weekly-actions"><button class="text-button" (click)="scrollTo('maintenance')">Bike maintenance</button><button class="text-button" (click)="scrollTo('monthly-report')">Monthly report</button></div>
       <section class="welcome-row">
         <div>
           <h1>{{ greeting() }}</h1>
@@ -316,6 +323,9 @@
           <button class="text-button" (click)="toggleExportMenu('footer', $event)" [attr.aria-expanded]="exportMenu()?.which === 'footer'" aria-haspopup="menu"><i-lucide [img]="icons.Download"></i-lucide> Download CSV</button>
         </div>
       </section>
+      @if (!loading() && !needsKey() && (!error() || entries().length)) {
+        <app-planning-panel [credential]="onDevice ? 'device' : apiKeyDraft().trim()" [entries]="entries()" [incomplete]="!!cachedAt() || !!error() || sync.pending().length > 0" />
+      }
       <footer class="footer"><span>Made for the miles you ride <span>♥</span></span><span>SHIFTLEDGER</span></footer>
     </div>
   </main>
